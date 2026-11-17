@@ -1,3 +1,15 @@
 #!/bin/sh
 . "$HOME/.xingchi/bridge-up.sh"
-exec codex "$@"
+
+if command -v codex >/dev/null 2>&1; then
+  exec codex "$@"
+elif [ -x "$HOME/.xingchi/node_modules/.bin/codex" ]; then
+  exec "$HOME/.xingchi/node_modules/.bin/codex" "$@"
+elif [ -x "$HOME/.npm-global/bin/codex" ]; then
+  exec "$HOME/.npm-global/bin/codex" "$@"
+elif command -v npx >/dev/null 2>&1; then
+  exec npx @openai/codex "$@"
+else
+  echo "error: codex not found. Run: npm install -g @openai/codex" >&2
+  exit 1
+fi

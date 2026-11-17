@@ -17,7 +17,7 @@ HOME = os.path.expanduser("~")
 URL = os.environ.get("XINGCHI_URL", "http://127.0.0.1:4010").rstrip("/")
 KEY = os.environ.get("XINGCHI_BRIDGE_KEY", "")
 XDIR = os.environ.get("XINGCHI_HOME", os.path.join(HOME, ".xingchi"))
-MODELS = ("gpt-6-astra", "gpt-6.1-sol")
+MODELS = ("gpt-6.1-sol", "gpt-6-astra")
 PRIMARY = MODELS[0]
 
 
@@ -206,13 +206,15 @@ def configure_hermes():
 def configure_opencode():
     path = os.path.join(HOME, ".config", "opencode", "opencode.json")
     cfg = read_json(path, {})
-    cfg.setdefault("providers", {})["xingchi"] = {
-        "name": "xingchi",
-        "package": "@opencode/ai/providers/openai-compatible",
-        "settings": {"baseURL": f"{URL}/v1", "apiKey": KEY},
-        "models": {m: {"name": m} for m in MODELS},
+    cfg.setdefault("provider", {})["openai"] = {
+        "options": {"baseURL": f"{URL}/v1", "apiKey": KEY},
+        "models": {
+            m: {
+                "name": m,
+                "options": {"store": False}
+            } for m in MODELS
+        },
     }
-    cfg["model"] = "xingchi/" + PRIMARY
     write_json(path, cfg)
     return path
 
@@ -220,21 +222,25 @@ def configure_opencode():
 def configure_codex():
     path = os.path.join(HOME, ".codex", "config.toml")
     text = read_text(path)
-    if "[model_providers.xingchi]" not in text:
+    if "[model_providers.OpenAI]" not in text:
         block = (
-            "[model_providers.xingchi]\n"
-            'name = "xingchi"\n'
+            'model_provider = "OpenAI"\n'
+            f'model = "{PRIMARY}"\n'
+            f'review_model = "{PRIMARY}"\n'
+            'web_search = "live"\n'
+            'disable_response_storage = true\n'
+            'network_access = "enabled"\n\n'
+            "[model_providers.OpenAI]\n"
+            'name = "OpenAI"\n'
             f'base_url = "{URL}/v1"\n'
-            'env_key = "XINGCHI_BRIDGE_KEY"\n'
+            f'model_catalog_url = "{URL}/v1/models"\n'
             'wire_api = "responses"\n'
+            'requires_openai_auth = false\n'
+            'experimental_bearer_token = "env:XINGCHI_BRIDGE_KEY"\n'
+            'http_headers = { "x-openai-actor-authorization" = "local-image-extension" }\n'
         )
-        text = text.rstrip("\n") + ("\n\n" if text.strip() else "") + block
-    prefix = ""
-    if not re.search(r"(?m)^model_provider\s*=", text):
-        prefix += 'model_provider = "xingchi"\n'
-    if not re.search(r"(?m)^model\s*=", text):
-        prefix += f'model = "{PRIMARY}"\n'
-    write_text(path, prefix + text)
+        text = block + ("\n" + text if text.strip() else "")
+    write_text(path, text)
     return path
 
 
