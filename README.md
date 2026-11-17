@@ -23,15 +23,46 @@ rejects (`reasoning_effort` on `gpt-6-astra`). Everything else stays stock: the
 installer writes each agent's own config file, and `xingchi-<agent>` only starts
 the bridge when it is down, then execs the real binary.
 
-Keys never leave the machine:
+## The Two Keys: Bridge Key vs Xingchi API Key
 
-- `~/.xingchi/upstream.key` (mode 600) holds your xingchi key and is read by the
-  bridge process only.
-- `~/.xingchi/bridge.key` is generated at install time. Every agent config gets
-  this key instead — as a literal value, an env-var reference, or via the
-  launcher environment, depending on what that agent supports.
-- Rotating your xingchi key is one file write. No agent config changes, because
-  no agent config ever contained it.
+The bridge enforces a strict two-key security boundary. Your real, paid API key
+never touches your agent configurations:
+
+```
+Agent (Claude, Pi, Codex...) ──[ BRIDGE KEY ]──> Local LiteLLM (127.0.0.1:4010) ──[ XINGCHI API KEY ]──> api.xingchiapi.com
+```
+
+### 1. Xingchi API Key (The Real Upstream Key)
+
+- **What it is**: Your actual paid account key created at [xingchiapi.com/keys](https://xingchiapi.com/keys). This key has monetary value and spends upstream API credits.
+- **Where it lives**: `~/.xingchi/upstream.key` (mode 600, readable only by your user).
+- **Who uses it**: Only the local LiteLLM bridge process (`start.sh`). It loads the key into memory as `XINGCHI_API_KEY` to authenticate outbound HTTPS requests to `api.xingchiapi.com`.
+- **Where it must NEVER be**: Never in any agent config files, git repositories, or shell history.
+
+### 2. Bridge Key (The Local Gateway Key)
+
+- **What it is**: A random string generated locally on your machine at install time (`sk-xingchi-...`). It has zero value outside of `127.0.0.1`.
+- **Where it lives**:
+  - `~/.xingchi/bridge.key` (mode 600) — reference copy.
+  - `~/.xingchi/litellm.yaml` — configured under `general_settings.master_key`.
+  - `~/.xingchi/env.sh` — exported as `XINGCHI_BRIDGE_KEY`.
+  - Inside each agent's configuration file (e.g. `~/.xingchi/claude-settings.json`, `~/.config/opencode/opencode.json`, `~/.pi/agent/models.json`).
+- **Who uses it**: Your coding agents send this key in their HTTP headers to authenticate with the local bridge on `127.0.0.1:4010`.
+
+### Key Comparison
+
+| Feature | Xingchi API Key (Upstream) | Bridge Key (Local) |
+| :--- | :--- | :--- |
+| **Origin** | Generated at `xingchiapi.com/keys` | Generated locally on your machine |
+| **Purpose** | Spends upstream API credits | Unlocks local loopback port (`4010`) |
+| **Storage** | `~/.xingchi/upstream.key` (mode 600) only | `~/.xingchi/bridge.key` + agent configs |
+| **Scope** | Remote (Internet / Xingchi API) | Local only (`127.0.0.1:4010`) |
+| **Leak Risk** | High (could drain account balance) | Zero (completely useless outside your localhost) |
+
+### Why Two Keys?
+
+1. **Zero Secret Leakage**: If an agent dumps its configuration into logs, an error report, or a public repository, only the local `bridge.key` is revealed. Your paid Xingchi API key is completely safe.
+2. **Instant Rotation**: If you rotate your Xingchi key, you update exactly **one file** (`~/.xingchi/upstream.key`) and restart the bridge. You never have to reconfigure or touch 9 different agent configuration files.
 
 ## Why LiteLLM, and not OpenRouter, 9Router, or direct config
 
@@ -91,34 +122,13 @@ Windows (PowerShell 5.1+)
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/kikiprojecto/xingchi-agents/main/install.ps1 | iex"
 ```
 
-Both commands print a menu:
+The installer guides you cleanly through 5 clear steps:
 
-```
-CHOOSE AGENTS YOU WANT TO SET:
-  1) claude    [installed]
-  2) hermes    [missing]
-  ...
-Numbers, names or "all" (blank = installed agents):
-```
-
-Enter numbers (`1 4`), names (`claude codex`), `all`, or press Enter to take the
-default. Every selected agent that is not on your PATH is installed
-automatically (see [Agent installation](#agent-installation)).
-
-Next the installer asks for your xingchi API key, once. Create one at
-[xingchiapi.com/keys](https://xingchiapi.com/keys) -> sign in/create your account first, click **Create key**,
-then copy it and paste it at the prompt (input is hidden; press Enter):
-
-```
-Create a key at https://xingchiapi.com/keys, copy it, then
-paste it here (input is hidden, press Enter):
-```
-
-That key goes only into `~/.xingchi/upstream.key` (mode 600), where the bridge
-reads it. The installer then fills every selected agent's API key field itself,
-using a generated local bridge key (literal value, env reference, or launcher
-environment depending on the agent) — you never paste a key into an agent config.
-No key is ever baked into this repo.
+1. **Choose Agents**: Pick which coding agents to configure (`claude`, `codex`, `pi`, `gemini`, etc., or `all`). Missing agents are installed automatically.
+2. **Upstream Xingchi API Key**: Enter your real key from [xingchiapi.com/keys](https://xingchiapi.com/keys). Stored securely in `~/.xingchi/upstream.key` (mode 600).
+3. **Bridge Key Generation**: A local random secret (`sk-xingchi-...`) is created in `~/.xingchi/bridge.key` to protect your real key.
+4. **Agent Configuration**: Writes each selected agent's native config file, injecting the local bridge key.
+5. **Bridge Verification**: Launches the local bridge on `127.0.0.1:4010` and executes a live smoke check.
 
 Non-interactive:
 
@@ -195,7 +205,7 @@ macOS/Linux, under `~/.xingchi`:
 | --- | --- |
 | `litellm.yaml` | bridge config, master key = local bridge key |
 | `start.sh` | starts the bridge on 127.0.0.1:4010 |
-| `bridge-up.sh` | health check + lazy start, sourced by launchers |
+| `bridge-up.sh` | health check + lazy start, sourced or executed directly |
 | `env.sh` | `XINGCHI_BRIDGE_URL`, `XINGCHI_BRIDGE_KEY` |
 | `upstream.key` | your xingchi API key (600) |
 | `bridge.key` | generated local bridge key (600) |
