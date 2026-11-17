@@ -79,13 +79,13 @@ upstream, one local process, one key boundary.
 
 ## Install
 
-macOS and Linux (any distro):
+macOS and Linux (any distro)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/kikiprojecto/xingchi-agents/main/install.sh | sh
 ```
 
-Windows (PowerShell 5.1+):
+Windows (PowerShell 5.1+)
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubusercontent.com/kikiprojecto/xingchi-agents/main/install.ps1 | iex"
