@@ -35,7 +35,7 @@ default. Agents marked `[missing]` are still configured, so the CLI works as
 soon as you install it.
 
 You need a xingchi API key. Create one at
-[xingchiapi.com/keys](https://xingchiapi.com/keys): sign in, click **Create key**,
+[xingchiapi.com/keys](https://xingchiapi.com/keys) -> sign in/create your account first, click **Create key**,
 then copy it. The installer asks for it once and stores it in
 `~/.xingchi/upstream.key` (mode 600). It generates a separate random key for
 the local bridge, so no key is ever baked into this repo.
