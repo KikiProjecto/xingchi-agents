@@ -1,0 +1,3 @@
+#!/bin/sh
+. "$HOME/.xingchi/bridge-up.sh"
+exec claude --settings "$HOME/.xingchi/claude-settings.json" "$@"

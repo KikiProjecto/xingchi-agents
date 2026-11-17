@@ -1,0 +1,6 @@
+#!/bin/sh
+. "$HOME/.xingchi/bridge-up.sh"
+GEMINI_API_KEY=$XINGCHI_BRIDGE_KEY
+GOOGLE_GEMINI_BASE_URL=$XINGCHI_BRIDGE_URL
+export GEMINI_API_KEY GOOGLE_GEMINI_BASE_URL
+exec gemini -m gpt-6-astra "$@"

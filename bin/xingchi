@@ -1,0 +1,16 @@
+#!/bin/sh
+# Show bridge state and which agent CLIs are installed.
+. "$HOME/.xingchi/env.sh"
+
+if curl -fsS -o /dev/null 2>/dev/null "$XINGCHI_BRIDGE_URL/health/liveliness"; then
+  echo "bridge: up ($XINGCHI_BRIDGE_URL)"
+else
+  echo "bridge: down (starts automatically when you run xingchi-<agent>)"
+fi
+for a in claude hermes opencode codex pi kilo agy gemini openclaw; do
+  if command -v "$a" >/dev/null 2>&1; then
+    printf '%-9s installed\n' "$a"
+  else
+    printf '%-9s missing\n' "$a"
+  fi
+done
