@@ -1,7 +1,5 @@
 *.key
 .env
 *.xingchi.bak
-instructions.md
-
 __pycache__/
 *.pyc
