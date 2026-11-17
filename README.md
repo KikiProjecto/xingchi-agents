@@ -6,6 +6,77 @@ The installer runs a LiteLLM bridge on `127.0.0.1:4010`, translates it into the
 native config format of every agent you pick, and puts a `xingchi-<agent>`
 launcher on your PATH. The bridge starts automatically when a launcher runs.
 
+## How it works
+
+```
+xingchi-claude ─┐
+xingchi-codex  ─┼─ HTTP 127.0.0.1:4010 ─ LiteLLM ─ HTTPS ─ api.xingchiapi.com/v1
+xingchi-pi     ─┘   (local bridge key)                (your xingchi key)
+```
+
+The agents do not agree on a wire protocol. Claude Code and Hermes speak the
+Anthropic Messages API, Codex speaks the OpenAI Responses API, and the others
+speak OpenAI Chat Completions. The bridge accepts all three on the loopback
+port and forwards each request to xingchiapi in the one OpenAI-compatible shape
+it serves. It also pins the headers the upstream expects and drops parameters it
+rejects (`reasoning_effort` on `gpt-6-astra`). Everything else stays stock: the
+installer writes each agent's own config file, and `xingchi-<agent>` only starts
+the bridge when it is down, then execs the real binary.
+
+Keys never leave the machine:
+
+- `~/.xingchi/upstream.key` (mode 600) holds your xingchi key and is read by the
+  bridge process only.
+- `~/.xingchi/bridge.key` is generated at install time. Every agent config gets
+  this key instead — as a literal value, an env-var reference, or via the
+  launcher environment, depending on what that agent supports.
+- Rotating your xingchi key is one file write. No agent config changes, because
+  no agent config ever contained it.
+
+## Why LiteLLM, and not OpenRouter, 9Router, or direct config
+
+The whole job is: take three client protocols, one upstream, one API key, and
+make them line up. LiteLLM is the smallest tool that does exactly that without
+adding an account, a dashboard, or a second network hop.
+
+| | LiteLLM (this repo) | OpenRouter | 9Router | direct config per agent |
+| --- | --- | --- | --- | --- |
+| Where it runs | local process, `127.0.0.1:4010` | hosted third-party service | local Node/Next.js app | inside each agent |
+| Account besides xingchi | none | OpenRouter account + purchased credits | none | none |
+| Can spend your own xingchi key | yes | no — it routes only to providers in its marketplace | yes | yes |
+| Extra cost | none | fee on credit purchases; some routes carry a provider markup | none | none |
+| Request path | agent → loopback → xingchiapi | agent → OpenRouter → provider | agent → loopback → provider | agent → xingchiapi |
+| Protocols served in one process | OpenAI Chat, OpenAI Responses, Anthropic Messages | vendor API (OpenAI-compatible) | OpenAI ↔ Anthropic ↔ Gemini translation | only the one protocol each agent speaks |
+| State you maintain | one YAML, one venv | nothing local, vendor console | app + SQLite + web dashboard | duplicated config per agent |
+| Multi-provider fallback, quota dashboards, prompt compression | no (single upstream) | yes (marketplace) | yes | no |
+| Real key exposure | one 600 file, one process | your OpenRouter key sits in each agent | every provider key in the router database | the real key in every agent config |
+
+**Why not OpenRouter.** It is a hosted marketplace, not a router you own. You
+would need an OpenRouter account and credits, pay a fee on top of xingchi, and
+every request would transit a third party — while your xingchi key would still
+be unusable there, because xingchi is not one of its providers. It solves a
+problem this project does not have (shopping across providers) and creates ones
+it must avoid (an account, a fee, an extra hop, another uptime dependency).
+
+**Why not 9Router.** 9Router is a capable local gateway: MIT, Next.js, ~40
+providers, format translation, multi-account rotation, fallback chains, a web
+dashboard, and a "token saver" that compresses tool output. With exactly one
+paid upstream, none of that is useful, and each piece adds surface: a Node app
+plus SQLite, a dashboard listening on localhost, and code paths that can
+rewrite prompts before they leave the machine. This repo deliberately avoids
+prompt rewriting — the agent's request is the request.
+
+**Why not configure each agent directly.** Each agent would need its own
+translation glue: Claude Code cannot target a Chat Completions endpoint, Codex
+cannot target an Anthropic endpoint, and both would need per-agent model alias
+tables and the parameter dropping that the bridge does once. You would also
+have to paste the real xingchi key into nine different files and re-edit all of
+them on rotation. LiteLLM turns that into one YAML plus one generated key.
+
+What this project intentionally is not: a multi-provider router, a failover
+system, a quota dashboard, a prompt compressor, or a free-tier scraper. One
+upstream, one local process, one key boundary.
+
 ## Install
 
 macOS and Linux (any distro):
@@ -34,11 +105,20 @@ Enter numbers (`1 4`), names (`claude codex`), `all`, or press Enter to take the
 default. Every selected agent that is not on your PATH is installed
 automatically (see [Agent installation](#agent-installation)).
 
-You need a xingchi API key. Create one at
+Next the installer asks for your xingchi API key, once. Create one at
 [xingchiapi.com/keys](https://xingchiapi.com/keys) -> sign in/create your account first, click **Create key**,
-then copy it. The installer asks for it once and stores it in
-`~/.xingchi/upstream.key` (mode 600). It generates a separate random key for
-the local bridge, so no key is ever baked into this repo.
+then copy it and paste it at the prompt (input is hidden; press Enter):
+
+```
+Create a key at https://xingchiapi.com/keys, copy it, then
+paste it here (input is hidden, press Enter):
+```
+
+That key goes only into `~/.xingchi/upstream.key` (mode 600), where the bridge
+reads it. The installer then fills every selected agent's API key field itself,
+using a generated local bridge key (literal value, env reference, or launcher
+environment depending on the agent) — you never paste a key into an agent config.
+No key is ever baked into this repo.
 
 Non-interactive:
 
