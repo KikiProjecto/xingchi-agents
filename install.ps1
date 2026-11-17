@@ -82,25 +82,6 @@ if (-not (Test-Path $litellm)) {
 }
 
 $upstreamKeyFile = Join-Path $XDir 'upstream.key'
-$upstream = $env:XINGCHI_API_KEY
-if (-not $upstream -and (Test-Path (Join-Path $XDir 'key'))) {
-    $upstream = (Get-Content (Join-Path $XDir 'key') -Raw).Trim()
-}
-if (-not $upstream -and (Test-Path $upstreamKeyFile)) {
-    $upstream = (Get-Content $upstreamKeyFile -Raw).Trim()
-}
-if (-not $upstream) {
-    if ($Yes) { throw 'set XINGCHI_API_KEY (your xingchiapi key) or run without -Yes' }
-    $secure = Read-Host 'Paste your xingchiapi API key' -AsSecureString
-    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
-    try {
-        $upstream = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
-    } finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
-    }
-}
-if (-not $upstream) { throw 'empty API key' }
-[IO.File]::WriteAllText($upstreamKeyFile, "$upstream`n")
 
 $bridgeKeyFile = Join-Path $XDir 'bridge.key'
 $bridge = ''
@@ -278,6 +259,27 @@ if ($Agents) {
     $selected = Resolve-Selection $answer
 }
 if (-not $selected -or $selected.Count -eq 0) { throw 'no agents selected' }
+
+$upstream = $env:XINGCHI_API_KEY
+if (-not $upstream -and (Test-Path (Join-Path $XDir 'key'))) {
+    $upstream = (Get-Content (Join-Path $XDir 'key') -Raw).Trim()
+}
+if (-not $upstream -and (Test-Path $upstreamKeyFile)) {
+    $upstream = (Get-Content $upstreamKeyFile -Raw).Trim()
+}
+if (-not $upstream) {
+    if ($Yes) { throw 'set XINGCHI_API_KEY (your xingchiapi key) or run without -Yes' }
+    Write-Host "`nCreate a key at https://xingchiapi.com/keys, copy it, then paste it here (input is hidden)."
+    $secure = Read-Host 'Paste your xingchiapi API key' -AsSecureString
+    $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+    try {
+        $upstream = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+    } finally {
+        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr)
+    }
+}
+if (-not $upstream) { throw 'empty API key' }
+[IO.File]::WriteAllText($upstreamKeyFile, "$upstream`n")
 
 $env:XINGCHI_BRIDGE_KEY = $bridge
 $env:XINGCHI_URL = $BridgeUrl
