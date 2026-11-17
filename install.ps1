@@ -197,14 +197,50 @@ function Get-AgentInvocation($agent) {
 
 $hints = @{
     claude   = 'npm install -g @anthropic-ai/claude-code'
-    hermes   = 'the official Hermes Agent installer'
+    hermes   = "iex (irm 'https://hermes-agent.nousresearch.com/install.ps1')"
     opencode = 'npm install -g opencode-ai'
     codex    = 'npm install -g @openai/codex'
     pi       = 'npm install -g @earendil-works/pi-coding-agent'
     kilo     = 'npm install -g @kilocode/cli'
-    agy      = 'the Antigravity CLI from Google'
+    agy      = "iex (irm 'https://antigravity.google/cli/install.ps1')"
     gemini   = 'npm install -g @google/gemini-cli'
     openclaw = 'npm install -g openclaw'
+}
+
+$npmPackages = @{
+    claude   = '@anthropic-ai/claude-code'
+    opencode = 'opencode-ai'
+    codex    = '@openai/codex'
+    pi       = '@earendil-works/pi-coding-agent'
+    kilo     = '@kilocode/cli'
+    gemini   = '@google/gemini-cli'
+    openclaw = 'openclaw'
+}
+
+function Install-AgentCli($agent) {
+    if (Get-Command $agent -ErrorAction SilentlyContinue) { return }
+    Write-Host "installing $agent..."
+    $pkg = $npmPackages[$agent]
+    if ($pkg) {
+        if (-not (Get-Command npm -ErrorAction SilentlyContinue) -and (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Write-Host 'installing Node.js...'
+            winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
+            $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+        }
+        if (Get-Command npm -ErrorAction SilentlyContinue) { & npm install -g $pkg }
+    } elseif ($agent -eq 'hermes') {
+        & powershell -NoProfile -ExecutionPolicy Bypass -Command "iex (irm 'https://hermes-agent.nousresearch.com/install.ps1')"
+    } elseif ($agent -eq 'agy') {
+        & powershell -NoProfile -ExecutionPolicy Bypass -Command "iex (irm 'https://antigravity.google/cli/install.ps1')"
+    }
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $extraDirs = @((Join-Path $env:USERPROFILE '.local\bin'), (Join-Path $env:LOCALAPPDATA 'agy\bin'))
+    foreach ($dir in $extraDirs) { if ((Test-Path $dir) -and ($env:Path -notlike "*$dir*")) { $env:Path = "$dir;$env:Path" } }
+    if (Get-Command $agent -ErrorAction SilentlyContinue) {
+        Write-Host "  installed $agent"
+    } else {
+        Write-Host "  note: $agent still missing. Install: $($hints[$agent])"
+    }
 }
 
 $installedAgents = @($AllAgents | Where-Object { Get-Command $_ -ErrorAction SilentlyContinue })
@@ -248,8 +284,9 @@ $env:XINGCHI_URL = $BridgeUrl
 $env:XINGCHI_HOME = $XDir
 
 foreach ($agent in $selected) {
-    if ($agent -eq 'hermes' -and -not (Test-Path (Join-Path $env:USERPROFILE '.hermes'))) {
-        Write-Host 'skip hermes: ~\.hermes not found (install Hermes first, then re-run)'
+    Install-AgentCli $agent
+    if ($agent -eq 'hermes' -and -not (Test-Path (Join-Path $env:USERPROFILE '.hermes\config.yaml'))) {
+        Write-Host "skip hermes: run 'hermes' once to create ~\.hermes\config.yaml, then re-run"
         continue
     }
     & $venvPython (Join-Path $SelfDir 'lib\config.py') $agent
@@ -261,9 +298,6 @@ foreach ($agent in $selected) {
         'if errorlevel 1 exit /b 1'
     ) + (Get-AgentInvocation $agent)
     [IO.File]::WriteAllText((Join-Path $Bin "xingchi-$agent.cmd"), ($lines -join "`r`n") + "`r`n")
-    if (-not (Get-Command $agent -ErrorAction SilentlyContinue)) {
-        Write-Host "  note: $agent not installed. Install: $($hints[$agent])"
-    }
 }
 
 $statusCmd = @"

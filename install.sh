@@ -163,15 +163,75 @@ agent_cmd() {
 install_hint() {
   case $1 in
     claude) echo "npm install -g @anthropic-ai/claude-code" ;;
-    hermes) echo "the official Hermes Agent installer" ;;
+    hermes) echo "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash" ;;
     opencode) echo "npm install -g opencode-ai" ;;
     codex) echo "npm install -g @openai/codex" ;;
     pi) echo "npm install -g @earendil-works/pi-coding-agent" ;;
     kilo) echo "npm install -g @kilocode/cli" ;;
-    agy) echo "the Antigravity CLI from Google" ;;
+    agy) echo "curl -fsSL https://antigravity.google/cli/install.sh | bash" ;;
     gemini) echo "npm install -g @google/gemini-cli" ;;
     openclaw) echo "npm install -g openclaw" ;;
   esac
+}
+
+npm_package() {
+  case $1 in
+    claude) echo @anthropic-ai/claude-code ;;
+    opencode) echo opencode-ai ;;
+    codex) echo @openai/codex ;;
+    gemini) echo @google/gemini-cli ;;
+    kilo) echo @kilocode/cli ;;
+    pi) echo @earendil-works/pi-coding-agent ;;
+    openclaw) echo openclaw ;;
+  esac
+}
+
+ensure_npm() {
+  command -v npm >/dev/null 2>&1 && return 0
+  echo "installing Node.js (needed for npm-based agents)..."
+  if command -v brew >/dev/null 2>&1; then
+    brew install node || true
+  elif command -v apt-get >/dev/null 2>&1; then
+    sudo apt-get update -qq && sudo apt-get install -y nodejs npm || true
+  elif command -v dnf >/dev/null 2>&1; then
+    sudo dnf install -y nodejs npm || true
+  elif command -v pacman >/dev/null 2>&1; then
+    sudo pacman -Sy --noconfirm nodejs npm || true
+  elif command -v zypper >/dev/null 2>&1; then
+    sudo zypper install -y nodejs npm || true
+  elif command -v apk >/dev/null 2>&1; then
+    sudo apk add nodejs npm || true
+  fi
+  command -v npm >/dev/null 2>&1
+}
+
+install_agent_cli() {
+  a=$1
+  command -v "$(agent_cmd "$a")" >/dev/null 2>&1 && return 0
+  echo "installing $a..."
+  pkg=$(npm_package "$a")
+  if [ -n "$pkg" ]; then
+    if ensure_npm; then
+      npm_root=$(npm root -g 2>/dev/null || true)
+      if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
+        npm install -g "$pkg" || true
+      elif npm install -g "$pkg" 2>/dev/null; then
+        : # prefix not created yet; npm created it as this user
+      else
+        sudo npm install -g "$pkg" || true
+      fi
+    fi
+  elif [ "$a" = hermes ]; then
+    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash || true
+  elif [ "$a" = agy ]; then
+    curl -fsSL https://antigravity.google/cli/install.sh | bash || true
+  fi
+  PATH="$HOME/.local/bin:$PATH"; export PATH
+  if command -v "$(agent_cmd "$a")" >/dev/null 2>&1; then
+    echo "  installed $a"
+  else
+    printf '  note: %s still missing. Install manually: %s\n' "$a" "$(install_hint "$a")"
+  fi
 }
 
 agent_at() {
@@ -231,8 +291,9 @@ fi
 
 configure_agent() {
   a=$1
-  if [ "$a" = hermes ] && [ ! -d "$HOME/.hermes" ]; then
-    echo "skip hermes: ~/.hermes not found (install Hermes first, then re-run)"
+  install_agent_cli "$a"
+  if [ "$a" = hermes ] && [ ! -f "$HOME/.hermes/config.yaml" ]; then
+    echo "skip hermes: run 'hermes' once to create ~/.hermes/config.yaml, then re-run"
     return 0
   fi
   XINGCHI_BRIDGE_KEY=$bridge_key XINGCHI_URL=http://127.0.0.1:4010 \
@@ -240,9 +301,6 @@ configure_agent() {
     || die "config for $a failed"
   cp "$SRC/bin/xingchi-$a" "$BIN/xingchi-$a"
   chmod 755 "$BIN/xingchi-$a"
-  if ! command -v "$(agent_cmd "$a")" >/dev/null 2>&1; then
-    printf '  note: %s not installed. Install: %s\n' "$a" "$(install_hint "$a")"
-  fi
 }
 
 for a in $selected; do configure_agent "$a"; done

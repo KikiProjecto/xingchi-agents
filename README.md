@@ -31,8 +31,8 @@ Numbers, names or "all" (blank = installed agents):
 ```
 
 Enter numbers (`1 4`), names (`claude codex`), `all`, or press Enter to take the
-default. Agents marked `[missing]` are still configured, so the CLI works as
-soon as you install it.
+default. Every selected agent that is not on your PATH is installed
+automatically (see [Agent installation](#agent-installation)).
 
 You need a xingchi API key. Create one at
 [xingchiapi.com/keys](https://xingchiapi.com/keys) -> sign in/create your account first, click **Create key**,
@@ -50,14 +50,35 @@ XINGCHI_API_KEY=... sh install.sh --agents claude,codex --yes
 
 - curl and tar (macOS/Linux); curl.exe (Windows 10 1803+)
 - Python 3.8+ with venv (installed automatically with apt/dnf/pacman/zypper/apk/brew or winget when missing)
-- An agent CLI to launch. The installer does not install the agents themselves.
+- Node.js for the npm-based agents (installed automatically via brew/apt/dnf/pacman/zypper/apk or winget when missing)
+
+## Agent installation
+
+A selected agent that is already on PATH is left alone. A selected agent that is
+missing is installed with its vendor's official command:
+
+| Agent | macOS / Linux | Windows |
+| --- | --- | --- |
+| Claude Code | `npm install -g @anthropic-ai/claude-code` | same |
+| opencode | `npm install -g opencode-ai` | same |
+| Codex | `npm install -g @openai/codex` | same |
+| Pi | `npm install -g @earendil-works/pi-coding-agent` | same |
+| Kilo | `npm install -g @kilocode/cli` | same |
+| Gemini CLI | `npm install -g @google/gemini-cli` | same |
+| OpenClaw | `npm install -g openclaw` | same |
+| Hermes | `curl -fsSL https://hermes-agent.nousresearch.com/install.sh \| bash` | `iex (irm 'https://hermes-agent.nousresearch.com/install.ps1')` |
+| Antigravity (`agy`) | `curl -fsSL https://antigravity.google/cli/install.sh \| bash` | `iex (irm 'https://antigravity.google/cli/install.ps1')` |
+
+npm installs go to the global prefix; if that directory is not writable the
+installer uses `sudo`. Hermes on macOS requires Apple Silicon. A failed install
+prints the manual command and the installer moves on to the remaining agents.
 
 ## Agents
 
 | Agent | Writes | Status |
 | --- | --- | --- |
 | Claude Code | `~/.xingchi/claude-settings.json` | tested |
-| Hermes | `~/.hermes/config.yaml` (+ `.env`) | tested; needs `~/.hermes` to exist first |
+| Hermes | `~/.hermes/config.yaml` (+ `.env`) | tested; run `hermes` once first so it creates `~/.hermes/config.yaml`, then re-run the installer |
 | opencode | `~/.config/opencode/opencode.json` | tested |
 | Kilo | `~/.config/kilo/kilo.jsonc` | tested |
 | Pi | `~/.pi/agent/models.json` | tested |
@@ -131,6 +152,8 @@ install time does not break the local bridge; retry the launcher later.
 - Agent configs contain the local bridge key, not your xingchi key.
 - The installer never edits shell startup file content beyond adding one PATH
   line, and never touches `~/.claude/settings.json`.
+- Missing agents are installed only with npm and the vendors' HTTPS installers
+  listed in [Agent installation](#agent-installation).
 
 ## Uninstall
 
