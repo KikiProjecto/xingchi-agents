@@ -65,23 +65,6 @@ umask 077
 mkdir -p "$XDIR" "$BIN"
 chmod 700 "$XDIR"
 
-upstream=${XINGCHI_API_KEY:-}
-if [ -z "$upstream" ] && [ -s "$XDIR/key" ]; then upstream=$(cat "$XDIR/key"); fi
-if [ -z "$upstream" ] && [ -s "$XDIR/upstream.key" ]; then upstream=$(cat "$XDIR/upstream.key"); fi
-if [ -z "$upstream" ]; then
-  if [ "$ASSUME_YES" = 1 ] || [ ! -r /dev/tty ]; then
-    die "set XINGCHI_API_KEY (your xingchiapi key) or run interactively"
-  fi
-  printf 'Paste your xingchiapi API key: ' >/dev/tty
-  stty -echo </dev/tty 2>/dev/null || true
-  IFS= read -r upstream </dev/tty || die "no key read"
-  stty echo </dev/tty 2>/dev/null || true
-  printf '\n' >/dev/tty
-fi
-[ -n "$upstream" ] || die "empty API key"
-printf '%s\n' "$upstream" > "$XDIR/upstream.key"
-chmod 600 "$XDIR/upstream.key"
-
 bridge_key=""
 if [ -s "$XDIR/bridge.key" ]; then bridge_key=$(cat "$XDIR/bridge.key"); fi
 if [ -z "$bridge_key" ] && [ -s "$XDIR/litellm.yaml" ]; then
@@ -288,6 +271,24 @@ else
   selected=$(parse_selection "$answer") || exit 1
 fi
 [ -n "$selected" ] || die "no agents selected"
+
+upstream=${XINGCHI_API_KEY:-}
+if [ -z "$upstream" ] && [ -s "$XDIR/key" ]; then upstream=$(cat "$XDIR/key"); fi
+if [ -z "$upstream" ] && [ -s "$XDIR/upstream.key" ]; then upstream=$(cat "$XDIR/upstream.key"); fi
+if [ -z "$upstream" ]; then
+  if [ "$ASSUME_YES" = 1 ] || [ ! -r /dev/tty ]; then
+    die "set XINGCHI_API_KEY (your xingchiapi key) or run interactively"
+  fi
+  printf '\nCreate a key at https://xingchiapi.com/keys, copy it, then\n' >/dev/tty
+  printf 'paste it here (input is hidden, press Enter): ' >/dev/tty
+  stty -echo </dev/tty 2>/dev/null || true
+  IFS= read -r upstream </dev/tty || die "no key read"
+  stty echo </dev/tty 2>/dev/null || true
+  printf '\n' >/dev/tty
+fi
+[ -n "$upstream" ] || die "empty API key"
+printf '%s\n' "$upstream" > "$XDIR/upstream.key"
+chmod 600 "$XDIR/upstream.key"
 
 configure_agent() {
   a=$1
