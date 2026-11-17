@@ -125,7 +125,8 @@ ensure_npm() {
 
 install_agent_cli() {
   a=$1
-  command -v "$(agent_cmd "$a")" >/dev/null 2>&1 && return 0
+  cmd=$(agent_cmd "$a")
+  command -v "$cmd" >/dev/null 2>&1 && return 0
   echo "  installing $a CLI..."
   pkg=$(npm_package "$a")
   if [ -n "$pkg" ]; then
@@ -144,8 +145,19 @@ install_agent_cli() {
   elif [ "$a" = agy ]; then
     curl -fsSL https://antigravity.google/cli/install.sh | bash || true
   fi
-  PATH="$HOME/.local/bin:$PATH"; export PATH
-  if command -v "$(agent_cmd "$a")" >/dev/null 2>&1; then
+
+  # Auto-link globally installed npm binaries to BIN ($HOME/.local/bin)
+  npm_bin=$(npm bin -g 2>/dev/null || true)
+  [ -z "$npm_bin" ] && npm_bin="$(npm prefix -g 2>/dev/null || true)/bin"
+  if [ -n "$npm_bin" ] && [ -d "$npm_bin" ]; then
+    PATH="$npm_bin:$PATH"; export PATH
+    if [ -x "$npm_bin/$cmd" ] && [ ! -e "$BIN/$cmd" ]; then
+      ln -s "$npm_bin/$cmd" "$BIN/$cmd" 2>/dev/null || cp "$npm_bin/$cmd" "$BIN/$cmd" 2>/dev/null || true
+    fi
+  fi
+
+  PATH="$BIN:$PATH"; export PATH
+  if command -v "$cmd" >/dev/null 2>&1; then
     echo "  -> installed $a successfully"
   else
     printf '  note: %s could not be auto-installed. Install manually: %s\n' "$a" "$(install_hint "$a")"

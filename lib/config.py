@@ -206,8 +206,23 @@ def configure_hermes():
 def configure_opencode():
     path = os.path.join(HOME, ".config", "opencode", "opencode.json")
     cfg = read_json(path, {})
+    cfg["model"] = f"openai/{PRIMARY}"
+    cfg.setdefault("agent", {})["build"] = {
+        "model": f"openai/{PRIMARY}",
+        "options": {"store": False}
+    }
+    cfg.setdefault("agent", {})["plan"] = {
+        "model": f"openai/{PRIMARY}",
+        "options": {"store": False}
+    }
     cfg.setdefault("provider", {})["openai"] = {
-        "options": {"baseURL": f"{URL}/v1", "apiKey": KEY},
+        "options": {
+            "baseURL": f"{URL}/v1",
+            "apiKey": KEY,
+            "headers": {
+                "x-openai-actor-authorization": "local-image-extension"
+            }
+        },
         "models": {
             m: {
                 "name": m,
