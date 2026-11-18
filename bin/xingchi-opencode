@@ -1,3 +1,0 @@
-#!/bin/sh
-. "$HOME/.xingchi/bridge-up.sh"
-exec opencode "$@"

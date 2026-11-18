@@ -1,32 +1,33 @@
 #!/bin/sh
-# xingchi-agents installer for macOS and Linux.
-# Adaptive setup for all 9 coding agents backed by Xingchi API (Option 3 standard).
+# xingchi-codex installer for macOS and Linux.
+# Points the Codex CLI at the Xingchi upstream (OpenAI Responses API).
+# No local proxy, one key.
 set -eu
 
-REPO=${XINGCHI_REPO:-kikiprojecto/xingchi-agents}
+REPO=${XINGCHI_REPO:-kikiprojecto/xingchi-codex}
 BRANCH=${XINGCHI_BRANCH:-main}
 XDIR=${XINGCHI_HOME:-$HOME/.xingchi}
 BIN=${XINGCHI_BIN:-$HOME/.local/bin}
-ALL_AGENTS="claude hermes opencode codex pi kilo agy gemini openclaw"
+UPSTREAM=${XINGCHI_UPSTREAM:-https://api.xingchiapi.com/v1}
+MODEL=gpt-6.1-sol
 
 die() { echo "error: $*" >&2; exit 1; }
 
 usage() {
   cat <<EOF
-usage: install.sh [--agents LIST] [--yes]
+usage: install.sh [--yes]
 
-  --agents LIST   comma or space separated names, or "all"
-                  ($ALL_AGENTS)
-  --yes           never prompt; requires --agents or XINGCHI_API_KEY
+Configures the Codex CLI for the Xingchi upstream (model $MODEL).
+Stores your Xingchi API key in $XDIR/upstream.key (mode 600) and writes
+~/.codex/config.toml to use $UPSTREAM.
+
+  --yes     never prompt; requires XINGCHI_API_KEY
 EOF
 }
 
-AGENTS=""
 ASSUME_YES=0
 while [ $# -gt 0 ]; do
   case $1 in
-    --agents) [ $# -ge 2 ] || die "--agents needs a value"; AGENTS=$2; shift 2 ;;
-    --agents=*) AGENTS=${1#*=}; shift ;;
     --yes|-y) ASSUME_YES=1; shift ;;
     -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1" ;;
@@ -41,22 +42,22 @@ if [ -z "$SRC" ] || [ ! -f "$SRC/lib/config.py" ]; then
   echo "downloading $REPO ($BRANCH)..."
   curl -fsSL "https://codeload.github.com/$REPO/tar.gz/refs/heads/$BRANCH" \
     | tar -xz -C "$bootstrap" || die "download failed"
-  exec sh "$bootstrap/xingchi-agents-$BRANCH/install.sh" "$@"
+  exec sh "$bootstrap/xingchi-codex-$BRANCH/install.sh" "$@"
 fi
 
-# Pre-flight: Python 3 environment
+# Pre-flight: Python 3 (used to merge ~/.codex/config.toml safely)
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 missing, attempting automatic installation..."
   if command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -qq && sudo apt-get install -y python3 python3-venv
+    sudo apt-get update -qq && sudo apt-get install -y python3
   elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y python3 python3-pip
+    sudo dnf install -y python3
   elif command -v pacman >/dev/null 2>&1; then
     sudo pacman -Sy --noconfirm python
   elif command -v zypper >/dev/null 2>&1; then
-    sudo zypper install -y python3 python3-virtualenv
+    sudo zypper install -y python3
   elif command -v apk >/dev/null 2>&1; then
-    sudo apk add python3 py3-virtualenv
+    sudo apk add python3
   elif command -v brew >/dev/null 2>&1; then
     brew install python
   fi
@@ -68,348 +69,71 @@ mkdir -p "$XDIR" "$BIN"
 chmod 700 "$XDIR"
 
 # -----------------------------------------------------------------------------
-# Agent Helper Functions
-# -----------------------------------------------------------------------------
-agent_cmd() {
-  case $1 in
-    claude) echo claude ;; hermes) echo hermes ;; opencode) echo opencode ;;
-    codex) echo codex ;; pi) echo pi ;; kilo) echo kilo ;; agy) echo agy ;;
-    gemini) echo gemini ;; openclaw) echo openclaw ;;
-  esac
-}
-
-install_hint() {
-  case $1 in
-    claude) echo "npm install -g @anthropic-ai/claude-code" ;;
-    hermes) echo "curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash" ;;
-    opencode) echo "npm install -g opencode-ai" ;;
-    codex) echo "npm install -g @openai/codex" ;;
-    pi) echo "npm install -g @earendil-works/pi-coding-agent" ;;
-    kilo) echo "npm install -g @kilocode/cli" ;;
-    agy) echo "curl -fsSL https://antigravity.google/cli/install.sh | bash" ;;
-    gemini) echo "npm install -g @google/gemini-cli" ;;
-    openclaw) echo "npm install -g openclaw" ;;
-  esac
-}
-
-npm_package() {
-  case $1 in
-    claude) echo @anthropic-ai/claude-code ;;
-    opencode) echo opencode-ai ;;
-    codex) echo @openai/codex ;;
-    gemini) echo @google/gemini-cli ;;
-    kilo) echo @kilocode/cli ;;
-    pi) echo @earendil-works/pi-coding-agent ;;
-    openclaw) echo openclaw ;;
-  esac
-}
-
-ensure_npm() {
-  command -v npm >/dev/null 2>&1 && return 0
-  echo "  Node.js missing, installing (required for npm-based agents)..."
-  if command -v brew >/dev/null 2>&1; then
-    brew install node || true
-  elif command -v apt-get >/dev/null 2>&1; then
-    sudo apt-get update -qq && sudo apt-get install -y nodejs npm || true
-  elif command -v dnf >/dev/null 2>&1; then
-    sudo dnf install -y nodejs npm || true
-  elif command -v pacman >/dev/null 2>&1; then
-    sudo pacman -Sy --noconfirm nodejs npm || true
-  elif command -v zypper >/dev/null 2>&1; then
-    sudo zypper install -y nodejs npm || true
-  elif command -v apk >/dev/null 2>&1; then
-    sudo apk add nodejs npm || true
-  fi
-  command -v npm >/dev/null 2>&1
-}
-
-install_agent_cli() {
-  a=$1
-  cmd=$(agent_cmd "$a")
-  command -v "$cmd" >/dev/null 2>&1 && return 0
-  echo "  installing $a CLI..."
-  pkg=$(npm_package "$a")
-  if [ -n "$pkg" ]; then
-    if ensure_npm; then
-      npm_root=$(npm root -g 2>/dev/null || true)
-      if [ -n "$npm_root" ] && [ -w "$npm_root" ]; then
-        npm install -g "$pkg" || true
-      elif npm install -g "$pkg" 2>/dev/null; then
-        :
-      else
-        sudo npm install -g "$pkg" || true
-      fi
-    fi
-  elif [ "$a" = hermes ]; then
-    curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash || true
-  elif [ "$a" = agy ]; then
-    curl -fsSL https://antigravity.google/cli/install.sh | bash || true
-  fi
-
-  # Auto-link globally installed npm binaries to BIN ($HOME/.local/bin)
-  npm_bin=$(npm bin -g 2>/dev/null || true)
-  [ -z "$npm_bin" ] && npm_bin="$(npm prefix -g 2>/dev/null || true)/bin"
-  if [ -n "$npm_bin" ] && [ -d "$npm_bin" ]; then
-    PATH="$npm_bin:$PATH"; export PATH
-    if [ -x "$npm_bin/$cmd" ] && [ ! -e "$BIN/$cmd" ]; then
-      ln -s "$npm_bin/$cmd" "$BIN/$cmd" 2>/dev/null || cp "$npm_bin/$cmd" "$BIN/$cmd" 2>/dev/null || true
-    fi
-  fi
-
-  PATH="$BIN:$PATH"; export PATH
-  if command -v "$cmd" >/dev/null 2>&1; then
-    echo "  -> installed $a successfully"
-  else
-    printf '  note: %s could not be auto-installed. Install manually: %s\n' "$a" "$(install_hint "$a")"
-  fi
-}
-
-agent_at() {
-  n=0
-  for a in $ALL_AGENTS; do
-    n=$((n + 1))
-    if [ "$n" = "$1" ]; then echo "$a"; return 0; fi
-  done
-  return 1
-}
-
-parse_selection() {
-  input=$1
-  case $input in
-    "") echo "$default"; return 0 ;;
-    all|a) echo "$ALL_AGENTS"; return 0 ;;
-  esac
-  picked=""
-  for token in $(echo "$input" | tr ',' ' '); do
-    case $token in
-      ''|*[!0-9]*) wanted=$token ;;
-      *) wanted=$(agent_at "$token") || { echo "error: no agent $token" >&2; return 1; } ;;
-    esac
-    case " $ALL_AGENTS " in
-      *" $wanted "*) picked="$picked $wanted" ;;
-      *) echo "error: unknown agent: $token" >&2; return 1 ;;
-    esac
-  done
-  echo "$picked"
-}
-
-# -----------------------------------------------------------------------------
-# STEP 1: Select Coding Agents
-# -----------------------------------------------------------------------------
-installed=""
-for a in $ALL_AGENTS; do
-  if command -v "$(agent_cmd "$a")" >/dev/null 2>&1; then installed="$installed $a"; fi
-done
-installed=${installed# }
-default=${installed:-$ALL_AGENTS}
-
-if [ -n "$AGENTS" ]; then
-  selected=$(parse_selection "$AGENTS") || exit 1
-elif [ "$ASSUME_YES" = 1 ]; then
-  selected=$default
-else
-  echo
-  echo "============================================================"
-  echo " [1/5] Choose Coding Agents to Configure"
-  echo "============================================================"
-  n=0
-  for a in $ALL_AGENTS; do
-    n=$((n + 1))
-    if command -v "$(agent_cmd "$a")" >/dev/null 2>&1; then state=installed; else state=missing; fi
-    printf '  %d) %-9s [%s]\n' "$n" "$a" "$state"
-  done
-  printf '\nNumbers, names or "all" (blank = %s): ' "$default"
-  IFS= read -r answer </dev/tty || die "no input; pass --agents"
-  selected=$(parse_selection "$answer") || exit 1
-fi
-[ -n "$selected" ] || die "no agents selected"
-
-# -----------------------------------------------------------------------------
-# STEP 2: Upstream Xingchi API Key Verification & Storage
+# STEP 1: Xingchi API key
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [2/5] Upstream Xingchi API Key (Real Credential)"
+echo " [1/4] Xingchi API key"
 echo "============================================================"
 upstream=${XINGCHI_API_KEY:-}
-if [ -z "$upstream" ] && [ -s "$XDIR/key" ]; then upstream=$(cat "$XDIR/key"); fi
-if [ -z "$upstream" ] && [ -s "$XDIR/upstream.key" ]; then upstream=$(cat "$XDIR/upstream.key"); fi
+if [ -n "$upstream" ]; then
+  echo "  using key from XINGCHI_API_KEY"
+elif [ -s "$XDIR/upstream.key" ]; then
+  upstream=$(cat "$XDIR/upstream.key")
+  echo "  using key from $XDIR/upstream.key"
+fi
 
 if [ -z "$upstream" ]; then
   if [ "$ASSUME_YES" = 1 ] || [ ! -r /dev/tty ]; then
     die "set XINGCHI_API_KEY (your xingchiapi key) or run interactively"
   fi
-  printf 'Your real Xingchi API key spends paid account credits.\n' >/dev/tty
-  printf 'It is stored ONLY in ~/.xingchi/upstream.key (mode 600).\n' >/dev/tty
-  printf 'No agent config will ever see or contain this key.\n\n' >/dev/tty
-  printf 'Create one at https://xingchiapi.com/keys -> copy it,\n' >/dev/tty
-  printf 'then paste it here (input is hidden, press Enter): ' >/dev/tty
+  printf 'Your Xingchi API key spends paid account credits.\n' >/dev/tty
+  printf 'It is stored only in %s/upstream.key (mode 600).\n' "$XDIR" >/dev/tty
+  printf 'Create one at https://xingchiapi.com/keys, then paste it here\n' >/dev/tty
+  printf '(input is hidden, press Enter): ' >/dev/tty
   stty -echo </dev/tty 2>/dev/null || true
   IFS= read -r upstream </dev/tty || die "no key read"
   stty echo </dev/tty 2>/dev/null || true
   printf '\n' >/dev/tty
-else
-  echo "  using verified upstream key from $XDIR/upstream.key"
 fi
 [ -n "$upstream" ] || die "empty API key"
 printf '%s\n' "$upstream" > "$XDIR/upstream.key"
 chmod 600 "$XDIR/upstream.key"
 
 # -----------------------------------------------------------------------------
-# STEP 3: Local Bridge Key Generation (Security Isolation Boundary)
+# STEP 2: Codex CLI
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [3/5] Local Bridge Key & Security Boundary"
+echo " [2/4] Codex CLI"
 echo "============================================================"
-bridge_key=""
-if [ -s "$XDIR/bridge.key" ]; then bridge_key=$(cat "$XDIR/bridge.key"); fi
-# Prevent leaked upstream key from being treated as bridge key
-if [ "$bridge_key" = "$upstream" ]; then bridge_key=""; fi
-case "$bridge_key" in
-  sk-xingchi-*) : ;;
-  *) bridge_key="" ;;
-esac
-if [ -z "$bridge_key" ]; then
-  bridge_key="sk-xingchi-$(python3 -c 'import secrets; print(secrets.token_hex(24))')"
-fi
-printf '%s\n' "$bridge_key" > "$XDIR/bridge.key"
-chmod 600 "$XDIR/bridge.key"
-echo "  local gateway key: $bridge_key"
-echo "  (Injected into agent configs to protect your real upstream key)"
-
-# -----------------------------------------------------------------------------
-# STEP 4: Setup LiteLLM Bridge & Configure Agents (Option 3 Standards)
-# -----------------------------------------------------------------------------
-echo
-echo "============================================================"
-echo " [4/5] Configuring LiteLLM Bridge & Agent Integrations"
-echo "============================================================"
-
-# Resolve / heal virtualenv
-litellm_bin=""
-if [ -x "$XDIR/venv/bin/litellm" ]; then
-  if "$XDIR/venv/bin/python" -c "import litellm" >/dev/null 2>&1; then
-    litellm_bin="$XDIR/venv/bin/litellm"
-  else
-    echo "  re-creating broken virtualenv in $XDIR/venv..."
-    rm -rf "$XDIR/venv"
-  fi
-fi
-
-if [ -z "$litellm_bin" ]; then
-  if command -v litellm >/dev/null 2>&1; then
-    litellm_bin=$(command -v litellm)
-  else
-    echo "  installing litellm[proxy] into $XDIR/venv..."
-    python3 -m venv "$XDIR/venv" || die "python3 venv failed; install python3-venv"
-    "$XDIR/venv/bin/python" -m pip install -q --upgrade pip
-    "$XDIR/venv/bin/pip" install -q 'litellm[proxy]' || die "litellm install failed"
-    litellm_bin="$XDIR/venv/bin/litellm"
-  fi
-fi
-
-# Write canonical litellm.yaml with Option 3 official headers and models
-cat > "$XDIR/litellm.yaml" <<EOF
-model_list:
-  - model_name: gpt-6.1-sol
-    litellm_params:
-      model: openai/gpt-6.1-sol
-      api_base: https://api.xingchiapi.com/v1
-      api_key: os.environ/XINGCHI_API_KEY
-      extra_headers:
-        user-agent: "opencode/0.9.0"
-        x-openai-actor-authorization: "local-image-extension"
-  - model_name: gpt-6-astra
-    litellm_params:
-      model: openai/gpt-6-astra
-      api_base: https://api.xingchiapi.com/v1
-      api_key: os.environ/XINGCHI_API_KEY
-      extra_headers:
-        user-agent: "opencode/0.9.0"
-        x-openai-actor-authorization: "local-image-extension"
-  - model_name: gpt-6
-    litellm_params:
-      model: openai/gpt-6
-      api_base: https://api.xingchiapi.com/v1
-      api_key: os.environ/XINGCHI_API_KEY
-      extra_headers:
-        user-agent: "opencode/0.9.0"
-        x-openai-actor-authorization: "local-image-extension"
-  - model_name: gpt-5.6
-    litellm_params:
-      model: openai/gpt-5.6
-      api_base: https://api.xingchiapi.com/v1
-      api_key: os.environ/XINGCHI_API_KEY
-      extra_headers:
-        user-agent: "opencode/0.9.0"
-        x-openai-actor-authorization: "local-image-extension"
-  - model_name: gpt-5.2
-    litellm_params:
-      model: openai/gpt-5.2
-      api_base: https://api.xingchiapi.com/v1
-      api_key: os.environ/XINGCHI_API_KEY
-      extra_headers:
-        user-agent: "opencode/0.9.0"
-        x-openai-actor-authorization: "local-image-extension"
-
-litellm_settings:
-  drop_params: true
-
-general_settings:
-  master_key: $bridge_key
-  disable_model_info_refresh: true
-EOF
-chmod 600 "$XDIR/litellm.yaml"
-
-cat > "$XDIR/start.sh" <<EOF
-#!/bin/sh
-# Local OpenAI/Anthropic/Responses bridge to xingchiapi on 127.0.0.1:4010.
-set -eu
-XDIR="\${XINGCHI_HOME:-\$HOME/.xingchi}"
-XINGCHI_API_KEY=\$(cat "\$XDIR/upstream.key")
-export XINGCHI_API_KEY
-
-litellm_bin=""
-if [ -x "\$XDIR/venv/bin/litellm" ]; then
-  litellm_bin="\$XDIR/venv/bin/litellm"
-elif command -v litellm >/dev/null 2>&1; then
-  litellm_bin=\$(command -v litellm)
+if command -v codex >/dev/null 2>&1; then
+  echo "  codex already installed: $(codex --version 2>/dev/null | head -n 1)"
 else
-  litellm_bin="$litellm_bin"
+  echo "  codex not found, installing @openai/codex..."
+  if command -v npm >/dev/null 2>&1; then
+    npm install -g @openai/codex || die "npm install -g @openai/codex failed"
+  else
+    die "npm is missing. Install Node.js, then: npm install -g @openai/codex"
+  fi
+  command -v codex >/dev/null 2>&1 || \
+    echo "  note: codex installed but not on PATH yet; open a new terminal or add npm's global bin"
 fi
 
-exec "\$litellm_bin" --config "\$XDIR/litellm.yaml" --host 127.0.0.1 --port 4010
-EOF
-chmod 700 "$XDIR/start.sh"
+# -----------------------------------------------------------------------------
+# STEP 3: Write Codex config and launchers
+# -----------------------------------------------------------------------------
+echo
+echo "============================================================"
+echo " [3/4] Configuring Codex and installing launchers"
+echo "============================================================"
+XINGCHI_API_KEY=$upstream XINGCHI_UPSTREAM=$UPSTREAM XINGCHI_HOME=$XDIR \
+  python3 "$SRC/lib/config.py" codex || die "config for codex failed"
 
-cat > "$XDIR/env.sh" <<EOF
-export XINGCHI_BRIDGE_URL=http://127.0.0.1:4010
-export XINGCHI_BRIDGE_KEY=$bridge_key
-EOF
-chmod 600 "$XDIR/env.sh"
-
-cp "$SRC/share/bridge-up.sh" "$XDIR/bridge-up.sh"
-chmod 700 "$XDIR/bridge-up.sh"
-
-configure_agent() {
-  a=$1
-  install_agent_cli "$a"
-  if [ "$a" = hermes ] && [ ! -f "$HOME/.hermes/config.yaml" ]; then
-    echo "  skip hermes: run 'hermes' once to create ~/.hermes/config.yaml, then re-run"
-    return 0
-  fi
-  XINGCHI_BRIDGE_KEY=$bridge_key XINGCHI_URL=http://127.0.0.1:4010 \
-    XINGCHI_HOME=$XDIR python3 "$SRC/lib/config.py" "$a" \
-    || die "config for $a failed"
-  cp "$SRC/bin/xingchi-$a" "$BIN/xingchi-$a"
-  chmod 755 "$BIN/xingchi-$a"
-}
-
-for a in $selected; do configure_agent "$a"; done
-
+cp "$SRC/bin/xingchi-codex" "$BIN/xingchi-codex"
 cp "$SRC/bin/xingchi" "$BIN/xingchi"
-chmod 755 "$BIN/xingchi"
+chmod 755 "$BIN/xingchi-codex" "$BIN/xingchi"
+echo "  installed $BIN/xingchi-codex"
 
 # Ensure PATH in shell rc
 case ":$PATH:" in
@@ -419,8 +143,8 @@ case ":$PATH:" in
       */fish)
         rc="$HOME/.config/fish/config.fish"
         mkdir -p "$(dirname "$rc")"
-        if ! grep -qs "xingchi-agents PATH" "$rc"; then
-          printf '\n# xingchi-agents PATH\nfish_add_path "%s"\n' "$BIN" >> "$rc"
+        if ! grep -qs "xingchi-codex PATH" "$rc"; then
+          printf '\n# xingchi-codex PATH\nfish_add_path "%s"\n' "$BIN" >> "$rc"
         fi
         ;;
       *)
@@ -429,8 +153,8 @@ case ":$PATH:" in
           */zsh) rc="$HOME/.zshrc" ;;
           */bash) rc="$HOME/.bashrc" ;;
         esac
-        if ! grep -qs "xingchi-agents PATH" "$rc"; then
-          printf '\n# xingchi-agents PATH\nexport PATH="%s:$PATH"\n' "$BIN" >> "$rc"
+        if ! grep -qs "xingchi-codex PATH" "$rc"; then
+          printf '\n# xingchi-codex PATH\nexport PATH="%s:$PATH"\n' "$BIN" >> "$rc"
         fi
         ;;
     esac
@@ -439,52 +163,33 @@ case ":$PATH:" in
 esac
 
 # -----------------------------------------------------------------------------
-# STEP 5: Conflict Resolution & Live Verification
+# STEP 4: Verify the key against the upstream
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [5/5] Conflict Resolution & Live Health Verification"
+echo " [4/4] Verification"
 echo "============================================================"
-
-# Resolve any zombie processes holding port 4010
-pkill -f litellm >/dev/null 2>&1 || true
-if command -v fuser >/dev/null 2>&1 && fuser 4010/tcp >/dev/null 2>&1; then
-  fuser -k 4010/tcp >/dev/null 2>&1 || true
-fi
-sleep 0.5
-
-XINGCHI_HOME=$XDIR; export XINGCHI_HOME
-( . "$XDIR/bridge-up.sh" ) || echo "warning: bridge did not start immediately (see ${TMPDIR:-/tmp}/xingchi-litellm.log)"
-
-smoke=$(mktemp)
-code=$(curl -s -o "$smoke" -w '%{http_code}' --max-time 30 \
-  -H "Authorization: Bearer $bridge_key" -H 'Content-Type: application/json' \
-  -d '{"model":"gpt-6.1-sol","messages":[{"role":"user","content":"Reply with OK"}],"max_tokens":4}' \
-  http://127.0.0.1:4010/v1/chat/completions || true)
-
-if [ "$code" = 200 ]; then
-  echo "  [OK] Live bridge check: SUCCESS (HTTP 200)"
-elif [ "$code" = 503 ]; then
-  echo "  [INFO] Bridge active & authenticated (HTTP 503 from upstream: Xingchi relay channel refreshing)"
-elif [ "$code" = 401 ]; then
-  echo "  [WARN] Upstream returned HTTP 401: verify your key at https://xingchiapi.com/keys"
-elif [ "$code" = 403 ]; then
-  echo "  [WARN] Upstream returned HTTP 403: model permission or balance check required"
-else
-  echo "  [INFO] Bridge liveliness status code: $code"
-fi
-rm -f "$smoke"
+resp=$(mktemp)
+code=$(curl -s -o "$resp" -w '%{http_code}' --max-time 20 \
+  -H "Authorization: Bearer $upstream" \
+  -H 'User-Agent: codex_cli_rs/0.170.0' \
+  "$UPSTREAM/models" || true)
+case "$code" in
+  200) echo "  [OK] key accepted; upstream offers: $(tr -d '\n' < "$resp" | head -c 200)" ;;
+  401) echo "  [WARN] upstream returned 401: check your key at https://xingchiapi.com/keys" ;;
+  403) echo "  [WARN] upstream returned 403: account balance or permission check required" ;;
+  *)   echo "  [INFO] upstream /models returned HTTP $code" ;;
+esac
+rm -f "$resp"
 
 echo
 echo "============================================================"
-echo " Installation Complete!"
+echo " Installation complete"
 echo "============================================================"
-echo "Configured agents: $selected"
+echo "  model: $MODEL"
+echo "  api:   $UPSTREAM"
 echo
-echo "You can now run any configured agent:"
-for a in $selected; do
-  echo "  -> xingchi-$a"
-done
-echo
-echo "Check bridge status anytime with:"
+echo "Start Codex with:"
+echo "  xingchi-codex"
+echo "Check the setup with:"
 echo "  xingchi"

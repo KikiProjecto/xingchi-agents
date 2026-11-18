@@ -1,16 +1,67 @@
 #!/bin/sh
-# Show bridge state and which agent CLIs are installed.
-. "$HOME/.xingchi/env.sh"
+# Show the Xingchi Codex setup, or run a deeper check with --doctor.
+set -u
+UPSTREAM=https://api.xingchiapi.com/v1
+KEY_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/upstream.key
 
-if curl -fsS -o /dev/null 2>/dev/null "$XINGCHI_BRIDGE_URL/health/liveliness"; then
-  echo "bridge: up ($XINGCHI_BRIDGE_URL)"
-else
-  echo "bridge: down (starts automatically when you run xingchi-<agent>)"
-fi
-for a in claude hermes opencode codex pi kilo agy gemini openclaw; do
-  if command -v "$a" >/dev/null 2>&1; then
-    printf '%-9s installed\n' "$a"
+usage() {
+  cat <<EOF
+usage: xingchi [--doctor]
+
+  (no args)   show API, model, key and codex status
+  --doctor    run 'codex doctor' and report model/provider status
+EOF
+}
+
+status() {
+  printf '%s\n' "API:   $UPSTREAM (direct, OpenAI Responses)"
+  printf '%s\n' "model: gpt-6.1-sol"
+
+  if [ -s "$KEY_FILE" ]; then
+    printf '%-9s set (%s)\n' "key" "$KEY_FILE"
   else
-    printf '%-9s missing\n' "$a"
+    printf '%-9s missing (%s)\n' "key" "$KEY_FILE"
   fi
-done
+
+  if command -v codex >/dev/null 2>&1; then
+    printf '%-9s installed (%s)\n' "codex" "$(codex --version 2>/dev/null | head -n 1)"
+  else
+    printf '%-9s missing\n' "codex"
+  fi
+
+  printf '\nstart with: xingchi-codex\n'
+  printf 'deeper check: xingchi --doctor\n'
+}
+
+doctor() {
+  if ! command -v codex >/dev/null 2>&1; then
+    echo "error: codex not found. Run: npm install -g @openai/codex" >&2
+    exit 1
+  fi
+  out=$(codex doctor 2>&1)
+  rc=$?
+  relevant=$(printf '%s\n' "$out" | grep -iE '(model|provider|inference URL|app-server)')
+  if [ -n "$relevant" ]; then
+    printf '%s\n' "$relevant"
+  else
+    printf '%s\n' "$out"
+  fi
+  printf '\ncodex doctor: '
+  if [ "$rc" -eq 0 ]; then
+    echo "healthy"
+  else
+    echo "reported problems (exit $rc)"
+  fi
+  return "$rc"
+}
+
+case "${1:-}" in
+  "") status ;;
+  --doctor) shift; doctor ;;
+  -h|--help) usage ;;
+  *)
+    echo "error: unknown option: $1" >&2
+    usage >&2
+    exit 2
+    ;;
+esac

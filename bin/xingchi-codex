@@ -1,5 +1,19 @@
 #!/bin/sh
-. "$HOME/.xingchi/bridge-up.sh"
+# Xingchi Codex launcher.
+# The Xingchi upstream only allows the OpenAI *Responses* API from known coding
+# clients and rejects scripts/SDKs (client_not_allowed). Codex speaks the
+# Responses API natively, so it talks to the upstream directly - no proxy.
+
+KEY_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/upstream.key
+KEY=$(cat "$KEY_FILE" 2>/dev/null)
+if [ -z "$KEY" ]; then
+  echo "error: API key missing at $KEY_FILE" >&2
+  echo "run the installer or: mkdir -p $(dirname "$KEY_FILE") && printf '%s\\n' YOUR_KEY > $KEY_FILE && chmod 600 $KEY_FILE" >&2
+  exit 1
+fi
+
+export OPENAI_BASE_URL=https://api.xingchiapi.com/v1
+export OPENAI_API_KEY="$KEY"
 
 if command -v codex >/dev/null 2>&1; then
   exec codex "$@"

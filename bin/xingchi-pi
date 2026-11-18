@@ -1,3 +1,0 @@
-#!/bin/sh
-. "$HOME/.xingchi/bridge-up.sh"
-exec pi --provider xingchi --model gpt-6.1-sol "$@"
