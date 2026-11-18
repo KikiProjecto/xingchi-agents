@@ -1,16 +1,16 @@
 # xingchi-codex
 
-Point the **Codex CLI** at the Xingchi API and start coding. One key, one
-model, no local proxy.
+Point the **Codex CLI** at the Xingchi API and start coding with 1 key,
+1 model, and no local proxy.
 
 ```
 codex ── HTTPS (OpenAI Responses API) ──> api.xingchiapi.com/v1
 ```
 
-The processor's upstream does not accept LiteLLM, SDKs, or plain scripts — it
+The processor's upstream does not accept LiteLLM, SDKs, or plain scripts and it
 serves the OpenAI **Responses** API only to known coding clients. Codex speaks
 that protocol natively, so it talks to the upstream **directly**. There is no
-bridge process, no `127.0.0.1:4010` port, and no second "bridge key".
+bridge process, no `127.0.0.1:4010` port, and no second "bridge key"
 
 ## The one real model
 
@@ -53,6 +53,10 @@ The installer:
 3. Writes `~/.codex/config.toml` and installs the `xingchi-codex` / `xingchi`
    launchers.
 4. Checks your key with a real request to `https://api.xingchiapi.com/v1/models`.
+
+If the upstream rejects the key (`401`/`403`) the installer exits non-zero and
+tells you to get a new key, so a failed check never looks like a finished
+install. Paste the key with or without surrounding spaces; it is trimmed.
 
 Non-interactive:
 

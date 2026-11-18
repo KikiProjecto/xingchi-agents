@@ -88,6 +88,8 @@ if (-not $upstream) {
         [Runtime.InteropServices.Marshal]::FreeBSTR($bstr)
     }
 }
+# Pasting from a browser can carry spaces or CR; trim or the key fails with 401.
+$upstream = "$upstream".Trim()
 if (-not $upstream) { throw 'empty API key' }
 [IO.File]::WriteAllText($UpstreamKeyFile, "$upstream`n")
 
@@ -147,13 +149,26 @@ if ($userPath -notlike "*$Bin*") {
 $env:Path = "$Bin;$env:Path"
 
 Write-Host "`n[4/4] Verification"
+$verifyFailed = $false
 try {
     $headers = @{ Authorization = "Bearer $upstream"; 'User-Agent' = 'codex_cli_rs/0.170.0' }
     $models = Invoke-RestMethod -Uri "$Upstream/models" -Headers $headers -TimeoutSec 20
     Write-Host '  [OK] key accepted; upstream offers:'
     $models | ConvertTo-Json -Compress -Depth 4 | Write-Host
 } catch {
-    Write-Host "  [WARN] upstream check failed: $($_.Exception.Message)"
+    $status = 0
+    try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+    if ($status -eq 401 -or $status -eq 403) {
+        Write-Host "  [FAIL] upstream returned $status`: the key was rejected"
+        $verifyFailed = $true
+    } else {
+        Write-Host "  [INFO] could not reach upstream /models; key not verified ($($_.Exception.Message))"
+    }
+}
+if ($verifyFailed) {
+    Write-Host "`nConfiguration was written, but the key does not work."
+    Write-Host 'Get a working key at https://xingchiapi.com/keys and re-run the installer.'
+    exit 1
 }
 
 Write-Host "`n Installation complete"

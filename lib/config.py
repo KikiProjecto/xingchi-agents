@@ -18,7 +18,7 @@ import sys
 
 HOME = os.path.expanduser("~")
 UPSTREAM = os.environ.get("XINGCHI_UPSTREAM", "https://api.xingchiapi.com/v1").rstrip("/")
-KEY = os.environ.get("XINGCHI_API_KEY", "")
+KEY = os.environ.get("XINGCHI_API_KEY", "").strip()
 MODEL = "gpt-6.1-sol"
 MODELS = (MODEL,)
 

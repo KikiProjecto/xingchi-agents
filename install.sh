@@ -84,7 +84,8 @@ elif [ -s "$XDIR/upstream.key" ]; then
 fi
 
 if [ -z "$upstream" ]; then
-  if [ "$ASSUME_YES" = 1 ] || [ ! -r /dev/tty ]; then
+  # A readable /dev/tty can still fail to open (CI, no controlling terminal).
+  if [ "$ASSUME_YES" = 1 ] || ! (exec </dev/tty) 2>/dev/null; then
     die "set XINGCHI_API_KEY (your xingchiapi key) or run interactively"
   fi
   printf 'Your Xingchi API key spends paid account credits.\n' >/dev/tty
@@ -92,10 +93,16 @@ if [ -z "$upstream" ]; then
   printf 'Create one at https://xingchiapi.com/keys, then paste it here\n' >/dev/tty
   printf '(input is hidden, press Enter): ' >/dev/tty
   stty -echo </dev/tty 2>/dev/null || true
-  IFS= read -r upstream </dev/tty || die "no key read"
+  # Ctrl-C at the hidden prompt must not leave the terminal without echo.
+  trap 'stty echo </dev/tty 2>/dev/null || true; exit 130' INT TERM HUP
+  IFS= read -r upstream </dev/tty || upstream=""
   stty echo </dev/tty 2>/dev/null || true
+  trap - INT TERM HUP
   printf '\n' >/dev/tty
+  [ -n "$upstream" ] || die "no key read"
 fi
+# Pasting from a browser can carry spaces or CR; trim or the key fails with 401.
+upstream=$(printf '%s' "$upstream" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
 [ -n "$upstream" ] || die "empty API key"
 printf '%s\n' "$upstream" > "$XDIR/upstream.key"
 chmod 600 "$XDIR/upstream.key"
@@ -170,17 +177,26 @@ echo "============================================================"
 echo " [4/4] Verification"
 echo "============================================================"
 resp=$(mktemp)
-code=$(curl -s -o "$resp" -w '%{http_code}' --max-time 20 \
-  -H "Authorization: Bearer $upstream" \
-  -H 'User-Agent: codex_cli_rs/0.170.0' \
-  "$UPSTREAM/models" || true)
+# Keep the key out of argv (visible in `ps`); curl reads its config from stdin.
+escaped=$(printf '%s' "$upstream" | sed 's/\\/\\\\/g; s/"/\\"/g')
+code=$(printf 'header = "Authorization: Bearer %s"\nheader = "User-Agent: codex_cli_rs/0.170.0"\n' "$escaped" \
+  | curl -s -o "$resp" -w '%{http_code}' --max-time 20 -K - "$UPSTREAM/models" || true)
+verify_failed=0
 case "$code" in
   200) echo "  [OK] key accepted; upstream offers: $(tr -d '\n' < "$resp" | head -c 200)" ;;
-  401) echo "  [WARN] upstream returned 401: check your key at https://xingchiapi.com/keys" ;;
-  403) echo "  [WARN] upstream returned 403: account balance or permission check required" ;;
-  *)   echo "  [INFO] upstream /models returned HTTP $code" ;;
+  401) echo "  [FAIL] upstream returned 401: the key was rejected" ;;
+  403) echo "  [FAIL] upstream returned 403: balance or permission check required" ;;
+  *)   echo "  [INFO] could not reach upstream /models (HTTP $code); key not verified" ;;
 esac
+case "$code" in 401|403) verify_failed=1 ;; esac
 rm -f "$resp"
+
+if [ "$verify_failed" = 1 ]; then
+  echo
+  echo "Configuration was written, but the key does not work."
+  echo "Get a working key at https://xingchiapi.com/keys and re-run the installer."
+  exit 1
+fi
 
 echo
 echo "============================================================"
@@ -190,6 +206,14 @@ echo "  model: $MODEL"
 echo "  api:   $UPSTREAM"
 echo
 echo "Start Codex with:"
-echo "  xingchi-codex"
+if command -v xingchi-codex >/dev/null 2>&1; then
+  echo "  xingchi-codex"
+else
+  echo "  $BIN/xingchi-codex      (PATH updates in a new terminal)"
+fi
 echo "Check the setup with:"
-echo "  xingchi"
+if command -v xingchi >/dev/null 2>&1; then
+  echo "  xingchi"
+else
+  echo "  $BIN/xingchi"
+fi

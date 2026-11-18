@@ -132,6 +132,48 @@ class LauncherTests(unittest.TestCase):
         self.assertNotIn("master_key", readme)
         self.assertNotIn("litellm.yaml", readme.lower())
 
+    def test_installer_trims_padded_key_and_writes_everything(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            fakepath = home / "fakebin"
+            fakepath.mkdir()
+            (fakepath / "codex").write_text("#!/bin/sh\necho 'codex-cli 0.170.0'\n")
+            (fakepath / "codex").chmod(0o755)
+
+            result = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--yes"],
+                env={
+                    "HOME": str(home),
+                    "PATH": str(fakepath) + os.pathsep + "/usr/bin:/bin",
+                    "XINGCHI_HOME": str(home / ".xingchi"),
+                    "XINGCHI_BIN": str(home / "bin"),
+                    "XINGCHI_UPSTREAM": "http://127.0.0.1:9/v1",
+                    "XINGCHI_API_KEY": "  padded-key  \r",
+                    "SHELL": "/bin/sh",
+                },
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertIn("Installation complete", result.stdout)
+            # The pasted key is trimmed before it reaches any file.
+            self.assertEqual((home / ".xingchi/upstream.key").read_text(), "padded-key\n")
+            config_text = (home / ".codex/config.toml").read_text()
+            self.assertIn('experimental_bearer_token = "padded-key"', config_text)
+            self.assertNotIn("padded-key  ", config_text)
+            launcher = home / "bin/xingchi-codex"
+            self.assertTrue(launcher.exists())
+            self.assertEqual(launcher.stat().st_mode & 0o777, 0o755)
+
+    def test_installer_keeps_key_out_of_process_arguments(self):
+        unix = (ROOT / "install.sh").read_text()
+        self.assertNotIn('-H "Authorization: Bearer', unix)
+        self.assertIn("-K -", unix)
+        # A Ctrl-C at the hidden prompt must restore terminal echo.
+        self.assertIn("trap '", unix)
+        self.assertIn("stty echo", unix)
+
     def test_no_credentials_in_repo(self):
         pattern = re.compile(r"sk-[0-9a-fA-F]{32,}")
         for path in ROOT.rglob("*"):
