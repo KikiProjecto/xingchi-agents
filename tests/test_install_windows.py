@@ -1,0 +1,224 @@
+"""Windows regression test for install.ps1.
+
+The original Windows installer used ``$Upstream`` for the base URL and
+``$upstream`` for the API key. PowerShell variable names are case-insensitive,
+so the two were the same variable: storing the key overwrote the URL. The
+result was ``base_url = "<api key>"`` in config.toml, ``OPENAI_BASE_URL`` set to
+the key in the generated launcher, and a "verification" step that tried to
+DNS-resolve the key as a hostname (printed as "could not reach upstream
+/models").
+
+These tests pin that down from both ends: statically, that the colliding name
+cannot come back, and functionally, that a real installer run puts the key in
+the bearer token and nowhere near a URL.
+"""
+
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import subprocess
+import tempfile
+import threading
+import unittest
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+ROOT = Path(__file__).resolve().parents[1]
+KEY = "win-test-key-abc123"
+POWERSHELL = shutil.which("powershell") or shutil.which("pwsh")
+
+try:
+    import winreg
+except ImportError:  # not on Windows
+    winreg = None
+
+
+def _user_path():
+    """The user PATH the installer would rewrite, straight from the registry."""
+    if winreg is None:
+        return None
+    try:
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as key:
+            return winreg.QueryValueEx(key, "Path")[0]
+    except FileNotFoundError:
+        return None
+
+
+def _installer_code():
+    """install.ps1 with its comment lines dropped.
+
+    The header comment deliberately names the old $Upstream/$upstream pair, so
+    the guard has to look at code only.
+    """
+    kept = [
+        line
+        for line in (ROOT / "install.ps1").read_text(encoding="utf-8").splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    return os.linesep.join(kept)
+
+
+class _ModelsHandler(BaseHTTPRequestHandler):
+    """Answers GET /models like the upstream and records what was sent."""
+
+    protocol_version = "HTTP/1.1"
+
+    def handle(self):
+        try:
+            super().handle()
+        except (ConnectionResetError, BrokenPipeError):
+            # PowerShell may reset a keep-alive connection it has finished with.
+            pass
+
+    def do_GET(self):
+        self.server.requests.append(
+            {"path": self.path, "authorization": self.headers.get("Authorization")}
+        )
+        body = json.dumps(
+            {"object": "list", "data": [{"id": "gpt-6.1-sol", "object": "model"}]}
+        ).encode()
+        try:
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except (ConnectionResetError, BrokenPipeError):
+            # PowerShell can reset a reused connection after reading the body.
+            pass
+
+    def log_message(self, *args):
+        pass
+
+
+class InstallerSourceTests(unittest.TestCase):
+    """Static guards: these run on every platform, no PowerShell needed."""
+
+    def test_no_case_colliding_url_and_key_variables(self):
+        # To PowerShell, $Upstream and $upstream are one variable. Any spelling
+        # of that name is the landmine that broke the installer.
+        self.assertIsNone(
+            re.search(r"\$upstream\b", _installer_code(), re.IGNORECASE),
+            "install.ps1 reintroduced $Upstream/$upstream. PowerShell variable "
+            "names are case-insensitive, so the base URL and the API key collide "
+            "and the key ends up in base_url",
+        )
+
+    def test_launchers_are_generated_from_placeholders(self):
+        # Values are filled in with a literal .Replace() into single-quoted
+        # here-strings, so nothing can expand into the wrong slot.
+        text = (ROOT / "install.ps1").read_text(encoding="utf-8")
+        self.assertIn("__BASE_URL__", text)
+        self.assertIn("__KEY_FILE__", text)
+
+
+@unittest.skipUnless(os.name == "nt", "the Windows installer only runs on Windows")
+@unittest.skipUnless(POWERSHELL, "PowerShell is not installed")
+class WindowsInstallTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.home = Path(self.directory.name)
+
+        self.server = HTTPServer(("127.0.0.1", 0), _ModelsHandler)
+        self.server.requests = []
+        self.server.daemon_threads = True
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.addCleanup(self.server.server_close)
+        self.addCleanup(self.server.shutdown)
+        self.base_url = "http://127.0.0.1:%d/v1" % self.server.server_address[1]
+
+        # A stub keeps this test offline: without it the installer would run
+        # "npm install -g @openai/codex" against the real npm prefix.
+        fake_bin = self.home / "fakebin"
+        fake_bin.mkdir()
+        (fake_bin / "codex.cmd").write_text("@echo off\r\necho codex-cli test\r\n")
+
+        self.env = dict(os.environ)
+        self.env.update(
+            {
+                "USERPROFILE": str(self.home),
+                "HOME": str(self.home),
+                "XINGCHI_HOME": str(self.home / ".xingchi"),
+                "XINGCHI_BIN": str(self.home / "bin"),
+                # Padded on purpose: the installer trims pasted keys.
+                "XINGCHI_API_KEY": "  " + KEY + "  ",
+                "XINGCHI_UPSTREAM": self.base_url,
+                # Never touch the developer's real PATH from a test.
+                "XINGCHI_NO_PATH": "1",
+                "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+            }
+        )
+        self._result = None
+
+    def install(self):
+        if self._result is None:
+            self._result = subprocess.run(
+                [
+                    POWERSHELL,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(ROOT / "install.ps1"),
+                    "-Yes",
+                ],
+                env=self.env,
+                capture_output=True,
+                text=True,
+                timeout=180,
+            )
+        self.assertEqual(
+            self._result.returncode,
+            0,
+            "installer failed\nstdout:\n%s\nstderr:\n%s"
+            % (self._result.stdout, self._result.stderr),
+        )
+        return self._result
+
+    def test_key_never_lands_in_base_url(self):
+        path_before = _user_path()
+        self.install()
+        self.assertEqual(
+            path_before, _user_path(), "-NoPath must not rewrite the user PATH"
+        )
+
+        config = (self.home / ".codex" / "config.toml").read_text(encoding="utf-8")
+        self.assertIn('base_url = "%s"' % self.base_url, config)
+        self.assertIn('model_catalog_url = "%s/models"' % self.base_url, config)
+        self.assertIn('experimental_bearer_token = "%s"' % KEY, config)
+
+        # The specific failure that shipped: the key used as the base URL.
+        for line in config.splitlines():
+            if line.strip().startswith(("base_url", "model_catalog_url")):
+                self.assertNotIn(KEY, line, "API key reached a URL: %s" % line)
+
+        # The key belongs on the wire as a bearer header, not in the request
+        # target (a key-as-URL produces a request for "<key>/models").
+        self.assertEqual(
+            [request["authorization"] for request in self.server.requests],
+            ["Bearer " + KEY],
+        )
+        self.assertEqual(self.server.requests[0]["path"], "/v1/models")
+
+        # The padded key was trimmed before it reached disk.
+        key_file = (self.home / ".xingchi" / "upstream.key").read_text(encoding="utf-8")
+        self.assertEqual(key_file, KEY + "\n")
+
+    def test_launchers_do_not_contain_the_key(self):
+        self.install()
+
+        launcher = (self.home / "bin" / "xingchi-codex.cmd").read_text(encoding="utf-8")
+        status = (self.home / "bin" / "xingchi.cmd").read_text(encoding="utf-8")
+
+        self.assertIn('set "OPENAI_BASE_URL=%s"' % self.base_url, launcher)
+        self.assertIn("upstream.key", launcher)
+        self.assertIn(self.base_url, status)
+
+        for name, text in (("xingchi-codex.cmd", launcher), ("xingchi.cmd", status)):
+            self.assertNotIn(KEY, text, "the API key leaked into %s" % name)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,27 +1,47 @@
 # xingchi-codex installer for Windows.
 # Points the Codex CLI at the Xingchi upstream (OpenAI Responses API).
 # No local proxy, one key.
+#
+# NAME COLLISION WARNING: PowerShell variable names are case-INsensitive, so
+# $Upstream and $upstream are the same variable. An earlier revision used that
+# pair for the base URL and the API key; pasting the key silently overwrote the
+# URL, which wrote base_url = "<api key>" into config.toml, pointed
+# OPENAI_BASE_URL at the key, and made "verification" try to DNS-resolve the key
+# as a hostname ("could not reach upstream /models"). Keep $BaseUrl and $ApiKey
+# distinct, and never reintroduce the old pair. tests/test_install_windows.py
+# enforces this.
 #requires -version 5.1
 param(
     [switch]$Yes,
+    [switch]$NoPath,
     [switch]$Help
 )
 $ErrorActionPreference = 'Stop'
+
+# Windows PowerShell 5.1 negotiates SSL3/TLS1.0 by default on older builds, which
+# fails against both codeload.github.com and the Xingchi API.
+try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+} catch { }
 
 $Repo = if ($env:XINGCHI_REPO) { $env:XINGCHI_REPO } else { 'kikiprojecto/xingchi-codex' }
 $Branch = if ($env:XINGCHI_BRANCH) { $env:XINGCHI_BRANCH } else { 'main' }
 $XDir = if ($env:XINGCHI_HOME) { $env:XINGCHI_HOME } else { Join-Path $env:USERPROFILE '.xingchi' }
 $Bin = if ($env:XINGCHI_BIN) { $env:XINGCHI_BIN } else { Join-Path $env:LOCALAPPDATA 'xingchi\bin' }
-$Upstream = if ($env:XINGCHI_UPSTREAM) { $env:XINGCHI_UPSTREAM } else { 'https://api.xingchiapi.com/v1' }
+$BaseUrl = if ($env:XINGCHI_UPSTREAM) { $env:XINGCHI_UPSTREAM } else { 'https://api.xingchiapi.com/v1' }
+# A trailing slash would otherwise produce "//models" in the catalog URL.
+$BaseUrl = "$BaseUrl".Trim().TrimEnd('/')
 $Model = 'gpt-6.1-sol'
-$UpstreamKeyFile = Join-Path $XDir 'upstream.key'
+$KeyFile = Join-Path $XDir 'upstream.key'
+$SkipPath = $NoPath -or ($env:XINGCHI_NO_PATH -eq '1')
 
 if ($Help) {
-    Write-Host "usage: install.ps1 [-Yes]`n"
+    Write-Host "usage: install.ps1 [-Yes] [-NoPath]`n"
     Write-Host "Configures the Codex CLI for the Xingchi upstream (model $Model)."
-    Write-Host "Stores your Xingchi API key in $UpstreamKeyFile (mode 600) and writes"
-    Write-Host "~/.codex/config.toml to use $Upstream.`n"
-    Write-Host "  -Yes    never prompt; requires XINGCHI_API_KEY"
+    Write-Host "Stores your Xingchi API key in $KeyFile and writes"
+    Write-Host "~/.codex/config.toml to use $BaseUrl.`n"
+    Write-Host "  -Yes     never prompt; requires XINGCHI_API_KEY"
+    Write-Host "  -NoPath  do not add the launcher directory to your user PATH"
     return
 }
 
@@ -36,6 +56,7 @@ if (-not $SelfDir -or -not (Test-Path (Join-Path $SelfDir 'lib\config.py'))) {
     $src = Get-ChildItem $tmp -Directory | Select-Object -First 1
     $childArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $src.FullName 'install.ps1'))
     if ($Yes) { $childArgs += '-Yes' }
+    if ($NoPath) { $childArgs += '-NoPath' }
     & powershell @childArgs
     if ($LASTEXITCODE -ne 0) { Write-Error "installer failed (exit $LASTEXITCODE)" }
     return
@@ -73,25 +94,25 @@ if (-not $python) {
 New-Item -ItemType Directory -Force -Path $XDir, $Bin | Out-Null
 
 Write-Host "`n[1/4] Xingchi API key"
-$upstream = $env:XINGCHI_API_KEY
-if (-not $upstream -and (Test-Path $UpstreamKeyFile)) {
-    $upstream = (Get-Content $UpstreamKeyFile -Raw).Trim()
+$ApiKey = $env:XINGCHI_API_KEY
+if (-not $ApiKey -and (Test-Path $KeyFile)) {
+    $ApiKey = (Get-Content $KeyFile -Raw).Trim()
 }
-if (-not $upstream) {
+if (-not $ApiKey) {
     if ($Yes) { throw 'set XINGCHI_API_KEY (your xingchiapi key) or run without -Yes' }
     Write-Host "`nCreate a key at https://xingchiapi.com/keys, copy it, then paste it here (input is hidden)."
     $secure = Read-Host 'Paste your xingchiapi API key' -AsSecureString
     $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
     try {
-        $upstream = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
+        $ApiKey = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($bstr)
     } finally {
         [Runtime.InteropServices.Marshal]::FreeBSTR($bstr)
     }
 }
 # Pasting from a browser can carry spaces or CR; trim or the key fails with 401.
-$upstream = "$upstream".Trim()
-if (-not $upstream) { throw 'empty API key' }
-[IO.File]::WriteAllText($UpstreamKeyFile, "$upstream`n")
+$ApiKey = "$ApiKey".Trim()
+if (-not $ApiKey) { throw 'empty API key' }
+[IO.File]::WriteAllText($KeyFile, "$ApiKey`n")
 
 Write-Host "`n[2/4] Codex CLI"
 if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
@@ -106,63 +127,97 @@ if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
     }
     & npm install -g @openai/codex
     if ($LASTEXITCODE -ne 0) { throw 'npm install -g @openai/codex failed' }
+    # This session still has the pre-install PATH, so codex.cmd (dropped in
+    # %APPDATA%\npm) is not visible yet. Refresh before the launchers rely on it.
+    $env:Path = [Environment]::GetEnvironmentVariable('Path', 'Machine') + ';' + [Environment]::GetEnvironmentVariable('Path', 'User')
+    $npmBin = Join-Path $env:APPDATA 'npm'
+    if (-not (Get-Command codex -ErrorAction SilentlyContinue) -and (Test-Path (Join-Path $npmBin 'codex.cmd'))) {
+        $env:Path = "$npmBin;$env:Path"
+    }
+}
+if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
+    Write-Host '  [WARN] codex is still not on PATH; xingchi-codex fails until you open a new terminal.'
 }
 
 Write-Host "`n[3/4] Configuring Codex and installing launchers"
-$env:XINGCHI_API_KEY = $upstream
-$env:XINGCHI_UPSTREAM = $Upstream
+$env:XINGCHI_API_KEY = $ApiKey
+$env:XINGCHI_UPSTREAM = $BaseUrl
 $env:XINGCHI_HOME = $XDir
 & $python (Join-Path $SelfDir 'lib\config.py') codex
 if ($LASTEXITCODE -ne 0) { throw 'config for codex failed' }
 
-$xingchiCmd = @"
+# Single-quoted here-strings: nothing here is expanded by PowerShell, so a value
+# can never be substituted into the wrong placeholder the way $Upstream/$upstream
+# once was. Values are filled in below with a literal .Replace().
+$xingchiCmd = @'
 @echo off
 setlocal
-set "XINGCHI_KEY_FILE=$UpstreamKeyFile"
+set "XINGCHI_KEY_FILE=__KEY_FILE__"
 if not exist "%XINGCHI_KEY_FILE%" (
   echo error: API key missing at "%XINGCHI_KEY_FILE%" 1>&2
   exit /b 1
 )
 set /p OPENAI_API_KEY=<"%XINGCHI_KEY_FILE%"
-set "OPENAI_BASE_URL=$Upstream"
+set "OPENAI_BASE_URL=__BASE_URL__"
 codex %*
-"@
-[IO.File]::WriteAllText((Join-Path $Bin 'xingchi-codex.cmd'), $xingchiCmd + "`r`n")
+'@
+$xingchiCmd = $xingchiCmd.Replace('__KEY_FILE__', $KeyFile).Replace('__BASE_URL__', $BaseUrl)
+[IO.File]::WriteAllText((Join-Path $Bin 'xingchi-codex.cmd'), $xingchiCmd.TrimEnd() + "`r`n")
 
-$statusCmd = @"
+$statusCmd = @'
 @echo off
-echo API:   $Upstream (direct, OpenAI Responses)
-echo model: $Model
-if exist "$UpstreamKeyFile" (echo key     set) else (echo key     missing)
+echo API:   __BASE_URL__ (direct, OpenAI Responses)
+echo model: __MODEL__
+if exist "__KEY_FILE__" (echo key     set) else (echo key     missing)
 where codex >NUL 2>&1
 if errorlevel 1 (echo codex   missing) else (echo codex   installed)
 echo.
 echo start with: xingchi-codex
-"@
-[IO.File]::WriteAllText((Join-Path $Bin 'xingchi.cmd'), $statusCmd + "`r`n")
+'@
+# The status command shows that the key is present, never the key itself.
+$statusCmd = $statusCmd.Replace('__BASE_URL__', $BaseUrl).Replace('__MODEL__', $Model).Replace('__KEY_FILE__', $KeyFile)
+[IO.File]::WriteAllText((Join-Path $Bin 'xingchi.cmd'), $statusCmd.TrimEnd() + "`r`n")
 
-$userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-if ($userPath -notlike "*$Bin*") {
-    [Environment]::SetEnvironmentVariable('Path', ($userPath.TrimEnd(';') + ';' + $Bin), 'User')
-    Write-Host "PATH updated with $Bin (open a new terminal)"
+if ($SkipPath) {
+    Write-Host "leaving user PATH untouched (-NoPath)"
+} else {
+    # Compare whole PATH entries; a substring test also matched "...\bin2".
+    $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+    if (-not $userPath) { $userPath = '' }
+    $segments = @($userPath.Split(';') | Where-Object { $_ })
+    if ($segments -notcontains $Bin) {
+        [Environment]::SetEnvironmentVariable('Path', ((@($segments) + $Bin) -join ';'), 'User')
+        Write-Host "PATH updated with $Bin (open a new terminal)"
+    }
 }
 $env:Path = "$Bin;$env:Path"
 
 Write-Host "`n[4/4] Verification"
 $verifyFailed = $false
 try {
-    $headers = @{ Authorization = "Bearer $upstream"; 'User-Agent' = 'codex_cli_rs/0.170.0' }
-    $models = Invoke-RestMethod -Uri "$Upstream/models" -Headers $headers -TimeoutSec 20
-    Write-Host '  [OK] key accepted; upstream offers:'
-    $models | ConvertTo-Json -Compress -Depth 4 | Write-Host
+    $headers = @{ Authorization = "Bearer $ApiKey"; 'User-Agent' = 'codex_cli_rs/0.170.0' }
+    $models = Invoke-RestMethod -Uri "$BaseUrl/models" -Headers $headers -TimeoutSec 20
+    $ids = @(@($models.data) | ForEach-Object { $_.id } | Where-Object { $_ })
+    if ($ids.Count -gt 0) {
+        Write-Host ('  [OK] key accepted; upstream offers: ' + ($ids -join ', '))
+        if ($ids -notcontains $Model) {
+            Write-Host "  [WARN] $Model was not in that list; Codex may reject the model name."
+        }
+    } else {
+        Write-Host '  [OK] key accepted'
+    }
 } catch {
     $status = 0
     try { $status = [int]$_.Exception.Response.StatusCode } catch { }
     if ($status -eq 401 -or $status -eq 403) {
         Write-Host "  [FAIL] upstream returned $status`: the key was rejected"
         $verifyFailed = $true
+    } elseif ($status -ne 0) {
+        Write-Host "  [FAIL] upstream returned $status for $BaseUrl/models"
+        $verifyFailed = $true
     } else {
-        Write-Host "  [INFO] could not reach upstream /models; key not verified ($($_.Exception.Message))"
+        # Reachability is not the same as "the key works": say so plainly.
+        Write-Host "  [WARN] could not reach $BaseUrl/models; the key was NOT verified ($($_.Exception.Message))"
     }
 }
 if ($verifyFailed) {
@@ -173,6 +228,6 @@ if ($verifyFailed) {
 
 Write-Host "`n Installation complete"
 Write-Host "  model: $Model"
-Write-Host "  api:   $Upstream"
+Write-Host "  api:   $BaseUrl"
 Write-Host "`nStart Codex with: xingchi-codex"
 Write-Host 'Check the setup with: xingchi'
