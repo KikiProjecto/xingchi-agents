@@ -15,7 +15,6 @@ from pathlib import Path
 import re
 import select
 import shutil
-import signal
 import struct
 import subprocess
 import sys
@@ -24,6 +23,7 @@ import threading
 import time
 import tomllib
 import unittest
+from unittest.mock import Mock, patch
 from http.server import BaseHTTPRequestHandler
 from socketserver import TCPServer
 
@@ -31,6 +31,72 @@ ROOT = Path(__file__).resolve().parents[1]
 KEY = "smoke-key-123"
 PICKER_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra"]
 UPSTREAM_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna", "gpt-5-test", "text-embedding-3-large"]
+
+
+def _stop_tui(process, master):
+    """Exit through the TUI; limit fallback signals to the process we own."""
+    terminal_closed = False
+    try:
+        try:
+            os.write(master, b"/quit\r")
+        except OSError:
+            pass  # The TUI may already have exited after a failed assertion.
+        try:
+            process.wait(timeout=5)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+        # Closing the PTY also disconnects a native CLI launched by the Node
+        # wrapper. macOS may reject signals to its entire process group.
+        os.close(master)
+        terminal_closed = True
+        process.terminate()
+        try:
+            process.wait(timeout=3)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3)
+    finally:
+        if not terminal_closed:
+            os.close(master)
+
+
+class TuiCleanupTests(unittest.TestCase):
+    def test_graceful_exit_closes_terminal_without_process_group_signals(self):
+        process = Mock()
+        with patch.object(os, "write") as write, patch.object(os, "close") as close, \
+                patch.object(os, "killpg", create=True) as kill_group:
+            _stop_tui(process, 42)
+        write.assert_called_once_with(42, b"/quit\r")
+        process.terminate.assert_not_called()
+        process.kill.assert_not_called()
+        kill_group.assert_not_called()
+        close.assert_called_once_with(42)
+
+    def test_timeout_terminates_only_owned_process_when_group_signals_are_denied(self):
+        process = Mock()
+        process.wait.side_effect = [subprocess.TimeoutExpired(["codex"], 3), 0]
+        with patch.object(os, "write"), patch.object(os, "close") as close, \
+                patch.object(os, "killpg", side_effect=[None, PermissionError(1, "Operation not permitted")], create=True) as kill_group:
+            _stop_tui(process, 42)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_not_called()
+        kill_group.assert_not_called()
+        close.assert_called_once_with(42)
+
+    def test_unresponsive_process_uses_bounded_direct_kill(self):
+        process = Mock()
+        timeout = subprocess.TimeoutExpired(["codex"], 3)
+        process.wait.side_effect = [timeout, timeout, 0]
+        with patch.object(os, "write"), patch.object(os, "close") as close, \
+                patch.object(os, "killpg", create=True) as kill_group:
+            _stop_tui(process, 42)
+        process.terminate.assert_called_once_with()
+        process.kill.assert_called_once_with()
+        kill_group.assert_not_called()
+        close.assert_called_once_with(42)
+
 
 class _Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
@@ -238,19 +304,7 @@ class SmokeTests(unittest.TestCase):
         )
         os.close(slave)
 
-        def cleanup():
-            try:
-                os.killpg(process.pid, signal.SIGTERM)
-            except ProcessLookupError:
-                pass
-            try:
-                process.wait(timeout=3)
-            except subprocess.TimeoutExpired:
-                os.killpg(process.pid, signal.SIGKILL)
-                process.wait(timeout=3)
-            os.close(master)
-
-        self.addCleanup(cleanup)
+        self.addCleanup(_stop_tui, process, master)
         output = bytearray()
 
         def clean_output():

@@ -35,7 +35,7 @@ class ConfigTests(unittest.TestCase):
     def put(self, relative, text):
         path = self.home / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(text)
+        path.write_text(text, encoding="utf-8")
         return path
 
     def test_writes_provider_and_model(self):
