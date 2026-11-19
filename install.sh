@@ -17,9 +17,10 @@ usage() {
   cat <<EOF
 usage: install.sh [--yes]
 
-Configures the Codex CLI for the Xingchi upstream (model $MODEL).
+Configures Codex for Xingchi (default: $MODEL).
 Stores your Xingchi API key in $XDIR/upstream.key (mode 600) and writes
-~/.codex/config.toml to use $UPSTREAM.
+config.toml and a four-model catalog under CODEX_HOME (default ~/.codex).
+Connects directly to $UPSTREAM. Choose model and reasoning with /model.
 
   --yes     never prompt; requires XINGCHI_API_KEY
 EOF
@@ -35,7 +36,7 @@ while [ $# -gt 0 ]; do
 done
 
 SRC=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd || true)
-if [ -z "$SRC" ] || [ ! -f "$SRC/lib/config.py" ]; then
+if [ -z "$SRC" ] || [ ! -f "$SRC/lib/config.py" ] || [ ! -f "$SRC/lib/models.json" ]; then
   command -v curl >/dev/null 2>&1 || die "curl is required to download the installer"
   command -v tar >/dev/null 2>&1 || die "tar is required to unpack the installer"
   bootstrap=$(mktemp -d)
@@ -73,7 +74,7 @@ chmod 700 "$XDIR"
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [1/4] Xingchi API key"
+echo " [1/3] Xingchi API key"
 echo "============================================================"
 upstream=${XINGCHI_API_KEY:-}
 if [ -n "$upstream" ]; then
@@ -112,19 +113,26 @@ chmod 600 "$XDIR/upstream.key"
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [2/4] Codex CLI"
+echo " [2/3] Codex CLI"
 echo "============================================================"
+cli_version=""
 if command -v codex >/dev/null 2>&1; then
-  echo "  codex already installed: $(codex --version 2>/dev/null | head -n 1)"
+  cli_version=$(codex --version 2>/dev/null || true)
+fi
+if python3 "$SRC/lib/config.py" check-cli "$cli_version" >/dev/null 2>&1; then
+  echo "  codex already installed: $cli_version"
 else
-  echo "  codex not found, installing @openai/codex..."
+  echo "  installing/updating @openai/codex (0.170.0 or newer required)..."
   if command -v npm >/dev/null 2>&1; then
     npm install -g @openai/codex || die "npm install -g @openai/codex failed"
   else
     die "npm is missing. Install Node.js, then: npm install -g @openai/codex"
   fi
   command -v codex >/dev/null 2>&1 || \
-    echo "  note: codex installed but not on PATH yet; open a new terminal or add npm's global bin"
+    die "codex is not on PATH; add npm's global bin directory, then rerun the installer"
+  cli_version=$(codex --version 2>/dev/null || true)
+  python3 "$SRC/lib/config.py" check-cli "$cli_version" || \
+    die "Codex update did not install a compatible CLI"
 fi
 
 # -----------------------------------------------------------------------------
@@ -132,7 +140,7 @@ fi
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [3/4] Configuring Codex and installing launchers"
+echo " [3/3] Installing the model catalog, reasoning menus and launchers"
 echo "============================================================"
 XINGCHI_API_KEY=$upstream XINGCHI_UPSTREAM=$UPSTREAM XINGCHI_HOME=$XDIR \
   python3 "$SRC/lib/config.py" codex || die "config for codex failed"
@@ -169,40 +177,10 @@ case ":$PATH:" in
     ;;
 esac
 
-# -----------------------------------------------------------------------------
-# STEP 4: Verify the key against the upstream
-# -----------------------------------------------------------------------------
-echo
-echo "============================================================"
-echo " [4/4] Verification"
-echo "============================================================"
-resp=$(mktemp)
-# Keep the key out of argv (visible in `ps`); curl reads its config from stdin.
-escaped=$(printf '%s' "$upstream" | sed 's/\\/\\\\/g; s/"/\\"/g')
-code=$(printf 'header = "Authorization: Bearer %s"\nheader = "User-Agent: codex_cli_rs/0.170.0"\n' "$escaped" \
-  | curl -s -o "$resp" -w '%{http_code}' --max-time 20 -K - "$UPSTREAM/models" || true)
-verify_failed=0
-case "$code" in
-  200) echo "  [OK] key accepted; upstream offers: $(tr -d '\n' < "$resp" | head -c 200)" ;;
-  401) echo "  [FAIL] upstream returned 401: the key was rejected" ;;
-  403) echo "  [FAIL] upstream returned 403: balance or permission check required" ;;
-  *)   echo "  [INFO] could not reach upstream /models (HTTP $code); key not verified" ;;
-esac
-case "$code" in 401|403) verify_failed=1 ;; esac
-rm -f "$resp"
-
-if [ "$verify_failed" = 1 ]; then
-  echo
-  echo "Configuration was written, but the key does not work."
-  echo "Get a working key at https://xingchiapi.com/keys and re-run the installer."
-  exit 1
-fi
-
 echo
 echo "============================================================"
 echo " Installation complete"
 echo "============================================================"
-echo "  model: $MODEL"
 echo "  api:   $UPSTREAM"
 echo
 echo "Start Codex with:"
@@ -211,6 +189,7 @@ if command -v xingchi-codex >/dev/null 2>&1; then
 else
   echo "  $BIN/xingchi-codex      (PATH updates in a new terminal)"
 fi
+echo 'Choose your model and reasoning level with /model in Codex.'
 echo "Check the setup with:"
 if command -v xingchi >/dev/null 2>&1; then
   echo "  xingchi"

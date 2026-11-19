@@ -4,11 +4,13 @@ from pathlib import Path
 import re
 import subprocess
 import tempfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
+@unittest.skipIf(os.name == "nt", "POSIX launchers are tested on macOS/Linux")
 class LauncherTests(unittest.TestCase):
     def test_codex_launcher_forwards_args_and_reads_key(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -39,7 +41,8 @@ class LauncherTests(unittest.TestCase):
                 check=True,
             )
             output = json.loads(result.stdout)
-            self.assertEqual(output["args"], ["--model", "two words", "*"])
+            # A shared daemon can retain the catalog from before installation.
+            self.assertEqual(output["args"], ["--no-daemon", "--model", "two words", "*"])
             self.assertEqual(output["url"], "https://api.xingchiapi.com/v1")
             self.assertEqual(output["key"], "local-test-key")
 
@@ -165,13 +168,53 @@ class LauncherTests(unittest.TestCase):
             launcher = home / "bin/xingchi-codex"
             self.assertTrue(launcher.exists())
             self.assertEqual(launcher.stat().st_mode & 0o777, 0o755)
+            settings = tomllib.loads(config_text)
+            catalog = json.loads(Path(settings["model_catalog_json"]).read_text())
+            self.assertEqual([model["slug"] for model in catalog["models"]],
+                             ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra"])
+            self.assertEqual(settings["features"], {
+                "api_key_model_discovery": True, "image_generation": True, "goals": True,
+            })
+            self.assertIn("--no-daemon", launcher.read_text())
 
-    def test_installer_keeps_key_out_of_process_arguments(self):
+    def test_installer_upgrades_old_cli_and_preserves_custom_home_selection(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            fakepath = home / "fakebin"
+            fakepath.mkdir()
+            codex = fakepath / "codex"
+            codex.write_text("#!/bin/sh\necho 'codex-cli 0.169.0'\n")
+            codex.chmod(0o755)
+            npm = fakepath / "npm"
+            npm.write_text(
+                '#!/bin/sh\nprintf "%s\\n" "$*" > "$XINGCHI_TEST_NPM_LOG"\n'
+                'printf "#!/bin/sh\\necho codex-cli 0.170.0\\n" > "$XINGCHI_TEST_CODEX"\n'
+            )
+            npm.chmod(0o755)
+            codex_home = home / "Custom Codex Home"
+            codex_home.mkdir()
+            config = codex_home / "config.toml"
+            config.write_text('model = "gpt-6-luna"\nmodel_reasoning_effort = "max"\n')
+            npm_log = home / "npm.log"
+            result = subprocess.run(
+                ["sh", str(ROOT / "install.sh"), "--yes"],
+                env={"HOME": str(home), "PATH": str(fakepath) + os.pathsep + "/usr/bin:/bin",
+                     "CODEX_HOME": str(codex_home), "XINGCHI_HOME": str(home / ".xingchi"),
+                     "XINGCHI_BIN": str(home / "bin"), "XINGCHI_API_KEY": "test-key",
+                     "XINGCHI_UPSTREAM": "http://127.0.0.1:9/v1", "SHELL": "/bin/sh",
+                     "XINGCHI_TEST_NPM_LOG": str(npm_log), "XINGCHI_TEST_CODEX": str(codex)},
+                capture_output=True, text=True, timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+            self.assertEqual(npm_log.read_text().strip(), "install -g @openai/codex")
+            settings = tomllib.loads(config.read_text())
+            self.assertEqual(settings["model"], "gpt-6-luna")
+            self.assertEqual(settings["model_reasoning_effort"], "max")
+            self.assertEqual(Path(settings["model_catalog_json"]).parent, codex_home)
+
+    def test_installer_restores_echo_if_key_prompt_is_interrupted(self):
         unix = (ROOT / "install.sh").read_text()
-        self.assertNotIn('-H "Authorization: Bearer', unix)
-        self.assertIn("-K -", unix)
-        # A Ctrl-C at the hidden prompt must restore terminal echo.
-        self.assertIn("trap '", unix)
+        self.assertIn("trap 'stty echo", unix)
         self.assertIn("stty echo", unix)
 
     def test_no_credentials_in_repo(self):

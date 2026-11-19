@@ -12,8 +12,12 @@ if [ -z "$KEY" ]; then
   exit 1
 fi
 
-export OPENAI_BASE_URL=https://api.xingchiapi.com/v1
+export OPENAI_BASE_URL="${XINGCHI_UPSTREAM:-https://api.xingchiapi.com/v1}"
 export OPENAI_API_KEY="$KEY"
+
+# The shared app server retains its startup catalog after config is rewritten.
+# Load the installed Xingchi catalog in a fresh server for each invocation.
+set -- --no-daemon "$@"
 
 if command -v codex >/dev/null 2>&1; then
   exec codex "$@"

@@ -21,6 +21,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import tomllib
 import unittest
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -76,7 +77,7 @@ class _ModelsHandler(BaseHTTPRequestHandler):
             {"path": self.path, "authorization": self.headers.get("Authorization")}
         )
         body = json.dumps(
-            {"object": "list", "data": [{"id": "gpt-6.1-sol", "object": "model"}]}
+            {"object": "list", "data": [{"id": "gpt-6.1-sol"}, {"id": "gpt-6.1-terra"}]}
         ).encode()
         try:
             self.send_response(200)
@@ -112,6 +113,9 @@ class InstallerSourceTests(unittest.TestCase):
         self.assertIn("__BASE_URL__", text)
         self.assertIn("__KEY_FILE__", text)
 
+    def test_launcher_loads_catalog_without_shared_daemon(self):
+        self.assertIn("codex --no-daemon %*", _installer_code())
+
 
 @unittest.skipUnless(os.name == "nt", "the Windows installer only runs on Windows")
 @unittest.skipUnless(POWERSHELL, "PowerShell is not installed")
@@ -133,13 +137,18 @@ class WindowsInstallTests(unittest.TestCase):
         # "npm install -g @openai/codex" against the real npm prefix.
         fake_bin = self.home / "fakebin"
         fake_bin.mkdir()
-        (fake_bin / "codex.cmd").write_text("@echo off\r\necho codex-cli test\r\n")
+        (fake_bin / "codex.cmd").write_text(
+            '@echo off\nif "%~1"=="--version" (\n'
+            '  echo codex-cli 0.170.0\n  exit /b 0\n)\n'
+            'echo %*>"%XINGCHI_TEST_ARGS%"\nexit /b 3\n'
+        )
 
         self.env = dict(os.environ)
         self.env.update(
             {
                 "USERPROFILE": str(self.home),
                 "HOME": str(self.home),
+                "CODEX_HOME": str(self.home / ".codex"),
                 "XINGCHI_HOME": str(self.home / ".xingchi"),
                 "XINGCHI_BIN": str(self.home / "bin"),
                 # Padded on purpose: the installer trims pasted keys.
@@ -148,6 +157,7 @@ class WindowsInstallTests(unittest.TestCase):
                 # Never touch the developer's real PATH from a test.
                 "XINGCHI_NO_PATH": "1",
                 "PATH": str(fake_bin) + os.pathsep + os.environ.get("PATH", ""),
+                "XINGCHI_TEST_ARGS": str(self.home / "args.txt"),
             }
         )
         self._result = None
@@ -186,7 +196,6 @@ class WindowsInstallTests(unittest.TestCase):
 
         config = (self.home / ".codex" / "config.toml").read_text(encoding="utf-8")
         self.assertIn('base_url = "%s"' % self.base_url, config)
-        self.assertIn('model_catalog_url = "%s/models"' % self.base_url, config)
         self.assertIn('experimental_bearer_token = "%s"' % KEY, config)
 
         # The specific failure that shipped: the key used as the base URL.
@@ -206,6 +215,25 @@ class WindowsInstallTests(unittest.TestCase):
         key_file = (self.home / ".xingchi" / "upstream.key").read_text(encoding="utf-8")
         self.assertEqual(key_file, KEY + "\n")
 
+    def test_installs_reasoning_catalog_with_all_levels(self):
+        self.install()
+        codex_home = self.home / ".codex"
+        config = (codex_home / "config.toml").read_text(encoding="utf-8")
+        catalog_path = codex_home / "xingchi-models.json"
+        self.assertIn("model_catalog_json = " + json.dumps(str(catalog_path), ensure_ascii=False), config)
+        self.assertNotIn("model_reasoning_effort", config)
+        settings = tomllib.loads(config)
+        self.assertEqual(settings["features"], {
+            "api_key_model_discovery": True, "image_generation": True, "goals": True,
+        })
+        models = json.loads(catalog_path.read_text(encoding="utf-8"))["models"]
+        self.assertEqual([model["slug"] for model in models],
+                         ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra", "gpt-6.1-terra"])
+        self.assertEqual(
+            [level["effort"] for level in models[0]["supported_reasoning_levels"]],
+            ["low", "medium", "high", "xhigh", "max", "ultra"],
+        )
+
     def test_launchers_do_not_contain_the_key(self):
         self.install()
 
@@ -214,10 +242,34 @@ class WindowsInstallTests(unittest.TestCase):
 
         self.assertIn('set "OPENAI_BASE_URL=%s"' % self.base_url, launcher)
         self.assertIn("upstream.key", launcher)
+        self.assertIn("codex --no-daemon %*", launcher)
         self.assertIn(self.base_url, status)
 
         for name, text in (("xingchi-codex.cmd", launcher), ("xingchi.cmd", status)):
             self.assertNotIn(KEY, text, "the API key leaked into %s" % name)
+
+    def test_launcher_forwards_model_effort_and_exit_code(self):
+        self.install()
+        launcher = self.home / "bin/xingchi-codex.cmd"
+        result = subprocess.run(
+            ["cmd.exe", "/d", "/c", str(launcher), "-m", "gpt-6-luna",
+             "-c", "model_reasoning_effort=max"],
+            env=self.env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(result.returncode, 3, result.stderr)
+        forwarded = (self.home / "args.txt").read_text().strip()
+        self.assertEqual(forwarded, "--no-daemon -m gpt-6-luna -c model_reasoning_effort=max")
+
+    def test_reinstall_preserves_model_and_effort(self):
+        self.install()
+        path = self.home / ".codex/config.toml"
+        text = path.read_text(encoding="utf-8").replace('model = "gpt-6.1-sol"', 'model = "gpt-6-astra"')
+        path.write_text('model_reasoning_effort = "ultra"\n' + text, encoding="utf-8")
+        self._result = None
+        self.install()
+        settings = tomllib.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(settings["model"], "gpt-6-astra")
+        self.assertEqual(settings["model_reasoning_effort"], "ultra")
 
 
 if __name__ == "__main__":

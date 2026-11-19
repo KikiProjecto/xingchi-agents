@@ -15,7 +15,7 @@ EOF
 
 status() {
   printf '%s\n' "API:   $UPSTREAM (direct, OpenAI Responses)"
-  printf '%s\n' "model: gpt-6.1-sol"
+  printf '%s\n' "models and reasoning: use /model in Codex"
 
   if [ -s "$KEY_FILE" ]; then
     printf '%-9s set (%s)\n' "key" "$KEY_FILE"

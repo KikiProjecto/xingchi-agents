@@ -37,16 +37,17 @@ $SkipPath = $NoPath -or ($env:XINGCHI_NO_PATH -eq '1')
 
 if ($Help) {
     Write-Host "usage: install.ps1 [-Yes] [-NoPath]`n"
-    Write-Host "Configures the Codex CLI for the Xingchi upstream (model $Model)."
+    Write-Host "Configures Codex for Xingchi (default: $Model)."
     Write-Host "Stores your Xingchi API key in $KeyFile and writes"
-    Write-Host "~/.codex/config.toml to use $BaseUrl.`n"
+    Write-Host 'config.toml and a four-model catalog under CODEX_HOME (default ~/.codex).'
+    Write-Host "Connects directly to $BaseUrl. Choose model and reasoning with /model.`n"
     Write-Host "  -Yes     never prompt; requires XINGCHI_API_KEY"
     Write-Host "  -NoPath  do not add the launcher directory to your user PATH"
     return
 }
 
 $SelfDir = $PSScriptRoot
-if (-not $SelfDir -or -not (Test-Path (Join-Path $SelfDir 'lib\config.py'))) {
+if (-not $SelfDir -or -not (Test-Path (Join-Path $SelfDir 'lib\config.py')) -or -not (Test-Path (Join-Path $SelfDir 'lib\models.json'))) {
     $tmp = Join-Path $env:TEMP ("xingchi-" + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $tmp | Out-Null
     $zip = Join-Path $tmp 'src.zip'
@@ -93,7 +94,7 @@ if (-not $python) {
 
 New-Item -ItemType Directory -Force -Path $XDir, $Bin | Out-Null
 
-Write-Host "`n[1/4] Xingchi API key"
+Write-Host "`n[1/3] Xingchi API key"
 $ApiKey = $env:XINGCHI_API_KEY
 if (-not $ApiKey -and (Test-Path $KeyFile)) {
     $ApiKey = (Get-Content $KeyFile -Raw).Trim()
@@ -114,9 +115,19 @@ $ApiKey = "$ApiKey".Trim()
 if (-not $ApiKey) { throw 'empty API key' }
 [IO.File]::WriteAllText($KeyFile, "$ApiKey`n")
 
-Write-Host "`n[2/4] Codex CLI"
-if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
-    Write-Host '  codex not found, installing @openai/codex...'
+Write-Host "`n[2/3] Codex CLI"
+$CliCompatible = $false
+if (Get-Command codex -ErrorAction SilentlyContinue) {
+    try {
+        $CliVersion = (& codex --version 2>$null | Out-String).Trim()
+        if ($CliVersion) {
+            & $python (Join-Path $SelfDir 'lib\config.py') check-cli $CliVersion
+            $CliCompatible = ($LASTEXITCODE -eq 0)
+        }
+    } catch { $CliCompatible = $false }
+}
+if (-not $CliCompatible) {
+    Write-Host '  installing/updating @openai/codex (0.170.0 or newer required)...'
     if (-not (Get-Command npm -ErrorAction SilentlyContinue) -and (Get-Command winget -ErrorAction SilentlyContinue)) {
         Write-Host '  installing Node.js...'
         winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements --silent
@@ -136,10 +147,13 @@ if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
     }
 }
 if (-not (Get-Command codex -ErrorAction SilentlyContinue)) {
-    Write-Host '  [WARN] codex is still not on PATH; xingchi-codex fails until you open a new terminal.'
+    throw 'codex is not on PATH; add npm to PATH, then rerun the installer'
 }
+$CliVersion = (& codex --version 2>$null | Out-String).Trim()
+& $python (Join-Path $SelfDir 'lib\config.py') check-cli $CliVersion
+if ($LASTEXITCODE -ne 0) { throw 'Codex update did not install a compatible CLI' }
 
-Write-Host "`n[3/4] Configuring Codex and installing launchers"
+Write-Host "`n[3/3] Installing the model catalog, reasoning menus and launchers"
 $env:XINGCHI_API_KEY = $ApiKey
 $env:XINGCHI_UPSTREAM = $BaseUrl
 $env:XINGCHI_HOME = $XDir
@@ -157,9 +171,15 @@ if not exist "%XINGCHI_KEY_FILE%" (
   echo error: API key missing at "%XINGCHI_KEY_FILE%" 1>&2
   exit /b 1
 )
+set "OPENAI_API_KEY="
 set /p OPENAI_API_KEY=<"%XINGCHI_KEY_FILE%"
+if not defined OPENAI_API_KEY (
+  echo error: API key empty at "%XINGCHI_KEY_FILE%" 1>&2
+  exit /b 1
+)
 set "OPENAI_BASE_URL=__BASE_URL__"
-codex %*
+call codex --no-daemon %*
+exit /b %ERRORLEVEL%
 '@
 $xingchiCmd = $xingchiCmd.Replace('__KEY_FILE__', $KeyFile).Replace('__BASE_URL__', $BaseUrl)
 [IO.File]::WriteAllText((Join-Path $Bin 'xingchi-codex.cmd'), $xingchiCmd.TrimEnd() + "`r`n")
@@ -167,7 +187,7 @@ $xingchiCmd = $xingchiCmd.Replace('__KEY_FILE__', $KeyFile).Replace('__BASE_URL_
 $statusCmd = @'
 @echo off
 echo API:   __BASE_URL__ (direct, OpenAI Responses)
-echo model: __MODEL__
+echo models and reasoning: use /model in Codex
 if exist "__KEY_FILE__" (echo key     set) else (echo key     missing)
 where codex >NUL 2>&1
 if errorlevel 1 (echo codex   missing) else (echo codex   installed)
@@ -175,7 +195,7 @@ echo.
 echo start with: xingchi-codex
 '@
 # The status command shows that the key is present, never the key itself.
-$statusCmd = $statusCmd.Replace('__BASE_URL__', $BaseUrl).Replace('__MODEL__', $Model).Replace('__KEY_FILE__', $KeyFile)
+$statusCmd = $statusCmd.Replace('__BASE_URL__', $BaseUrl).Replace('__KEY_FILE__', $KeyFile)
 [IO.File]::WriteAllText((Join-Path $Bin 'xingchi.cmd'), $statusCmd.TrimEnd() + "`r`n")
 
 if ($SkipPath) {
@@ -192,42 +212,8 @@ if ($SkipPath) {
 }
 $env:Path = "$Bin;$env:Path"
 
-Write-Host "`n[4/4] Verification"
-$verifyFailed = $false
-try {
-    $headers = @{ Authorization = "Bearer $ApiKey"; 'User-Agent' = 'codex_cli_rs/0.170.0' }
-    $models = Invoke-RestMethod -Uri "$BaseUrl/models" -Headers $headers -TimeoutSec 20
-    $ids = @(@($models.data) | ForEach-Object { $_.id } | Where-Object { $_ })
-    if ($ids.Count -gt 0) {
-        Write-Host ('  [OK] key accepted; upstream offers: ' + ($ids -join ', '))
-        if ($ids -notcontains $Model) {
-            Write-Host "  [WARN] $Model was not in that list; Codex may reject the model name."
-        }
-    } else {
-        Write-Host '  [OK] key accepted'
-    }
-} catch {
-    $status = 0
-    try { $status = [int]$_.Exception.Response.StatusCode } catch { }
-    if ($status -eq 401 -or $status -eq 403) {
-        Write-Host "  [FAIL] upstream returned $status`: the key was rejected"
-        $verifyFailed = $true
-    } elseif ($status -ne 0) {
-        Write-Host "  [FAIL] upstream returned $status for $BaseUrl/models"
-        $verifyFailed = $true
-    } else {
-        # Reachability is not the same as "the key works": say so plainly.
-        Write-Host "  [WARN] could not reach $BaseUrl/models; the key was NOT verified ($($_.Exception.Message))"
-    }
-}
-if ($verifyFailed) {
-    Write-Host "`nConfiguration was written, but the key does not work."
-    Write-Host 'Get a working key at https://xingchiapi.com/keys and re-run the installer.'
-    exit 1
-}
-
 Write-Host "`n Installation complete"
-Write-Host "  model: $Model"
 Write-Host "  api:   $BaseUrl"
 Write-Host "`nStart Codex with: xingchi-codex"
+Write-Host 'Choose your model and reasoning level with /model in Codex.'
 Write-Host 'Check the setup with: xingchi'
