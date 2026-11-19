@@ -34,7 +34,7 @@ or Terra, that exact model must be enabled for your key's account group.
 
 ## Install
 
-macOS and Linux
+macOS and Linux (any distros)
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/kikiprojecto/xingchi-codex/main/install.sh | sh
