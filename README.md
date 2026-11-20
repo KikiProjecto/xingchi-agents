@@ -22,25 +22,51 @@ prompt. The group is chosen when you start Codex, not by changing models in
 
 ## Models and reasoning
 
-The catalogs are separated by API-key group:
+The model catalogs are separate because each API key is tied to its own group.
+These are the model IDs currently included in this project's group catalogs.
 
-- **GPT公益 / default:** `gpt-6.1-sol`
-- **Astra / `--astra`:**
-  `gpt-5.6-sol`, `gpt-6`, `gpt-5.6`, `gpt-5.6-terra`, `gpt-5.6-luna`,
-  `gpt-6.1-terra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`,
-  `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`,
-  `codex-auto-review`, `gpt-5.2`, `gpt-image-1`, `gpt-image-1.5`,
-  `gpt-image-2`, `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`,
-  `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`.
+**GPT公益 (default command: `xingchi-codex`)**
+
+| Listed model ID |
+| --- |
+| `gpt-6.1-sol` |
+
+**Astra-专属余额 (select with `xingchi-codex --astra`)**
+
+| Listed model ID |
+| --- |
+| `gpt-5.6-sol` |
+| `gpt-6` |
+| `gpt-5.6` |
+| `gpt-5.6-terra` |
+| `gpt-5.6-luna` |
+| `gpt-6.1-terra` |
+| `gpt-6.1-sol` |
+| `gpt-6-sol` |
+| `gpt-6-luna` |
+| `gpt-6-astra` |
+| `gpt-5.5` |
+| `gpt-5.4` |
+| `gpt-5.4-mini` |
+| `gpt-5.3-codex-spark` |
+| `codex-auto-review` |
+| `gpt-5.2` |
+| `gpt-image-1` |
+| `gpt-image-1.5` |
+| `gpt-image-2` |
+| `gpt-image-2.5-flare` |
+| `gpt-image-2.5-sunburst` |
+| `gpt-image-2.6-flare` |
+| `gpt-image-2.6-sunburst` |
 
 The installer queries both configured keys separately and writes
 `xingchi-models.json` for GPT公益 and `xingchi-models-astra.json` for Astra.
 The Astra launcher selects the second catalog as well as the Astra key. Each
 catalog can also include additional IDs discovered from that same key.
 
-An ID returned by `/v1/models` is only a catalog listing; it does **not** prove
-the group has balance, an active route, or that the ID supports interactive
-Codex requests. Non-conversation image, embedding, and utility IDs are included
+An ID in these tables is only a catalog listing; it does **not** prove the group
+has balance, an active route, or that the ID supports interactive Codex
+requests. Non-conversation image, embedding, and utility IDs are included
 because the group advertises them, but may reject a Codex text request.
 In the earlier session check, Astra requests returned an insufficient-balance
 error; the menu can expose the group's full list, but that account-side balance
