@@ -3,6 +3,8 @@
 set -u
 UPSTREAM=https://api.xingchiapi.com/v1
 KEY_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/upstream.key
+CODEX_DIR=${CODEX_HOME:-$HOME/.codex}
+SHARED_SKILLS=$HOME/.agents/skills
 
 usage() {
   cat <<EOF
@@ -14,13 +16,31 @@ EOF
 }
 
 status() {
-  printf '%s\n' "API:   $UPSTREAM (direct, OpenAI Responses)"
+  printf '%s\n' "API:   $UPSTREAM (direct)"
   printf '%s\n' "models and reasoning: use /model in Codex"
+  printf '%s\n' "catalogs: $CODEX_DIR/xingchi-models.json (GPT公益), $CODEX_DIR/xingchi-models-astra.json (Astra)"
 
   if [ -s "$KEY_FILE" ]; then
-    printf '%-9s set (%s)\n' "key" "$KEY_FILE"
+    printf '%-9s set (%s)\n' "Sol key" "$KEY_FILE"
   else
-    printf '%-9s missing (%s)\n' "key" "$KEY_FILE"
+    printf '%-9s missing (%s)\n' "Sol key" "$KEY_FILE"
+  fi
+
+  ASTRA_KEY_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/astra.key
+  if [ -s "$ASTRA_KEY_FILE" ]; then
+    printf '%-9s set (%s)\n' "Astra key" "$ASTRA_KEY_FILE"
+  else
+    printf '%-9s missing (%s)\n' "Astra key" "$ASTRA_KEY_FILE"
+  fi
+
+  if [ -d "$SHARED_SKILLS" ]; then
+    printf '%-9s %s\n' "skills" "$SHARED_SKILLS (unified)"
+  else
+    printf '%-9s missing (%s)\n' "skills" "$SHARED_SKILLS"
+  fi
+  CONFLICT_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/skill-conflicts.json
+  if [ -f "$CONFLICT_FILE" ]; then
+    printf '%-9s %s\n' "conflicts" "$CONFLICT_FILE"
   fi
 
   if command -v codex >/dev/null 2>&1; then
@@ -30,6 +50,9 @@ status() {
   fi
 
   printf '\nstart with: xingchi-codex\n'
+  printf 'Astra key:  xingchi-codex --astra\n'
+  printf 'Sol model:  xingchi-codex -m gpt-6.1-sol\n'
+  printf 'Astra model: xingchi-codex --astra -m gpt-6-astra\n'
   printf 'deeper check: xingchi --doctor\n'
 }
 

@@ -7,12 +7,30 @@
       "base_instructions": "You are Codex, a coding assistant. Work with the user to complete their task.",
       "default_reasoning_level": "low",
       "supported_reasoning_levels": [
-        { "effort": "low", "description": "Fast responses" },
-        { "effort": "medium", "description": "Balanced speed and depth" },
-        { "effort": "high", "description": "Deeper reasoning" },
-        { "effort": "xhigh", "description": "Extra high reasoning" },
-        { "effort": "max", "description": "Maximum reasoning" },
-        { "effort": "ultra", "description": "Reasoning with automatic delegation" }
+        {
+          "effort": "low",
+          "description": "Fast responses"
+        },
+        {
+          "effort": "medium",
+          "description": "Balanced speed and depth"
+        },
+        {
+          "effort": "high",
+          "description": "Deeper reasoning"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning"
+        },
+        {
+          "effort": "max",
+          "description": "Maximum reasoning"
+        },
+        {
+          "effort": "ultra",
+          "description": "Reasoning with automatic delegation"
+        }
       ],
       "shell_type": "unified_exec",
       "visibility": "list",
@@ -20,7 +38,10 @@
       "priority": 1,
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
       "supports_image_detail_original": true,
       "context_window": 500000,
       "max_context_window": 872000,
@@ -35,12 +56,30 @@
       "base_instructions": "You are Codex, a coding assistant. Work with the user to complete their task.",
       "default_reasoning_level": "low",
       "supported_reasoning_levels": [
-        { "effort": "low", "description": "Fast responses" },
-        { "effort": "medium", "description": "Balanced speed and depth" },
-        { "effort": "high", "description": "Deeper reasoning" },
-        { "effort": "xhigh", "description": "Extra high reasoning" },
-        { "effort": "max", "description": "Maximum reasoning" },
-        { "effort": "ultra", "description": "Reasoning with automatic delegation" }
+        {
+          "effort": "low",
+          "description": "Fast responses"
+        },
+        {
+          "effort": "medium",
+          "description": "Balanced speed and depth"
+        },
+        {
+          "effort": "high",
+          "description": "Deeper reasoning"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning"
+        },
+        {
+          "effort": "max",
+          "description": "Maximum reasoning"
+        },
+        {
+          "effort": "ultra",
+          "description": "Reasoning with automatic delegation"
+        }
       ],
       "shell_type": "unified_exec",
       "visibility": "list",
@@ -48,9 +87,12 @@
       "priority": 2,
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
       "supports_image_detail_original": true,
-      "context_window": 272000,
+      "context_window": 500000,
       "max_context_window": 872000,
       "support_verbosity": true,
       "default_verbosity": "low",
@@ -63,11 +105,26 @@
       "base_instructions": "You are Codex, a coding assistant. Work with the user to complete their task.",
       "default_reasoning_level": "medium",
       "supported_reasoning_levels": [
-        { "effort": "low", "description": "Fast responses" },
-        { "effort": "medium", "description": "Balanced speed and depth" },
-        { "effort": "high", "description": "Deeper reasoning" },
-        { "effort": "xhigh", "description": "Extra high reasoning" },
-        { "effort": "max", "description": "Maximum reasoning" }
+        {
+          "effort": "low",
+          "description": "Fast responses"
+        },
+        {
+          "effort": "medium",
+          "description": "Balanced speed and depth"
+        },
+        {
+          "effort": "high",
+          "description": "Deeper reasoning"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning"
+        },
+        {
+          "effort": "max",
+          "description": "Maximum reasoning"
+        }
       ],
       "shell_type": "unified_exec",
       "visibility": "list",
@@ -75,7 +132,10 @@
       "priority": 3,
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
       "supports_image_detail_original": true,
       "context_window": 272000,
       "max_context_window": 872000,
@@ -90,12 +150,30 @@
       "base_instructions": "You are Codex, a coding assistant. Work with the user to complete their task.",
       "default_reasoning_level": "low",
       "supported_reasoning_levels": [
-        { "effort": "low", "description": "Fast responses" },
-        { "effort": "medium", "description": "Balanced speed and depth" },
-        { "effort": "high", "description": "Deeper reasoning" },
-        { "effort": "xhigh", "description": "Extra high reasoning" },
-        { "effort": "max", "description": "Maximum reasoning" },
-        { "effort": "ultra", "description": "Reasoning with automatic delegation" }
+        {
+          "effort": "low",
+          "description": "Fast responses"
+        },
+        {
+          "effort": "medium",
+          "description": "Balanced speed and depth"
+        },
+        {
+          "effort": "high",
+          "description": "Deeper reasoning"
+        },
+        {
+          "effort": "xhigh",
+          "description": "Extra high reasoning"
+        },
+        {
+          "effort": "max",
+          "description": "Maximum reasoning"
+        },
+        {
+          "effort": "ultra",
+          "description": "Reasoning with automatic delegation"
+        }
       ],
       "shell_type": "unified_exec",
       "visibility": "list",
@@ -103,7 +181,10 @@
       "priority": 4,
       "apply_patch_tool_type": "freeform",
       "web_search_tool_type": "text_and_image",
-      "truncation_policy": { "mode": "tokens", "limit": 10000 },
+      "truncation_policy": {
+        "mode": "tokens",
+        "limit": 10000
+      },
       "supports_image_detail_original": true,
       "context_window": 500000,
       "max_context_window": 872000,

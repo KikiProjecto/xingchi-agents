@@ -1,33 +1,26 @@
 #!/bin/sh
 # Xingchi Codex launcher.
-# The Xingchi upstream only allows the OpenAI *Responses* API from known coding
-# clients and rejects scripts/SDKs (client_not_allowed). Codex speaks the
-# Responses API natively, so it talks to the upstream directly - no proxy.
+# The Python runner keeps key handling identical on POSIX and Windows. It lives
+# beside this launcher after installation.
+set -u
 
-KEY_FILE=${XINGCHI_HOME:-$HOME/.xingchi}/upstream.key
-KEY=$(cat "$KEY_FILE" 2>/dev/null)
-if [ -z "$KEY" ]; then
-  echo "error: API key missing at $KEY_FILE" >&2
-  echo "run the installer or: mkdir -p $(dirname "$KEY_FILE") && printf '%s\\n' YOUR_KEY > $KEY_FILE && chmod 600 $KEY_FILE" >&2
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd) || {
+  echo "error: could not locate the Xingchi launcher" >&2
+  exit 1
+}
+RUNNER="$SCRIPT_DIR/xingchi-codex-runner.py"
+if [ ! -f "$RUNNER" ]; then
+  echo "error: Xingchi runner missing at $RUNNER; rerun the installer" >&2
   exit 1
 fi
 
-export OPENAI_BASE_URL="${XINGCHI_UPSTREAM:-https://api.xingchiapi.com/v1}"
-export OPENAI_API_KEY="$KEY"
-
-# The shared app server retains its startup catalog after config is rewritten.
-# Load the installed Xingchi catalog in a fresh server for each invocation.
-set -- --no-daemon "$@"
-
-if command -v codex >/dev/null 2>&1; then
-  exec codex "$@"
-elif [ -x "$HOME/.xingchi/node_modules/.bin/codex" ]; then
-  exec "$HOME/.xingchi/node_modules/.bin/codex" "$@"
-elif [ -x "$HOME/.npm-global/bin/codex" ]; then
-  exec "$HOME/.npm-global/bin/codex" "$@"
-elif command -v npx >/dev/null 2>&1; then
-  exec npx @openai/codex "$@"
+if command -v python3 >/dev/null 2>&1; then
+  PYTHON=python3
+elif command -v python >/dev/null 2>&1; then
+  PYTHON=python
 else
-  echo "error: codex not found. Run: npm install -g @openai/codex" >&2
+  echo "error: Python 3 is required by the Xingchi launcher" >&2
   exit 1
 fi
+
+exec "$PYTHON" "$RUNNER" "$@"

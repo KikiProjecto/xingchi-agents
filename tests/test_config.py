@@ -58,12 +58,18 @@ class ConfigTests(unittest.TestCase):
             self.assertNotIn("multi_agent_reasoning_effort", entry)
         self.assertEqual(provider["wire_api"], "responses")
         self.assertFalse(provider["requires_openai_auth"])
-        self.assertEqual(provider["experimental_bearer_token"], "fake-key")
+        self.assertEqual(provider["env_key"], "XINGCHI_API_KEY")
+        self.assertFalse(provider["supports_websockets"])
+        self.assertNotIn("experimental_bearer_token", provider)
+        self.assertNotIn("fake-key", path.read_text(encoding="utf-8"))
         self.assertEqual(provider["capabilities"]["remote_compaction"], "unsupported")
         self.assertEqual(
             provider["http_headers"]["x-openai-actor-authorization"],
             "local-image-extension",
         )
+        self.assertNotIn("XingchiAstra", settings["model_providers"])
+        astra_catalog = json.loads((path.parent / "xingchi-models-astra.json").read_text())
+        self.assertEqual([m["slug"] for m in astra_catalog["models"]], config.group_model_ids("astra"))
         if os.name != "nt":
             self.assertEqual(path.stat().st_mode & 0o777, 0o600)
 
@@ -78,6 +84,34 @@ class ConfigTests(unittest.TestCase):
             if model["slug"] != "gpt-6-luna":
                 expected.append("ultra")
             self.assertEqual(efforts, expected)
+
+    def test_configures_separate_model_catalogs_for_each_key_group(self):
+        sol = ["gpt-6.1-sol", "gpt-6", "gpt-5.6-sol"]
+        astra = ["gpt-6.1-sol", "gpt-6-astra", "codex-auto-review",
+                 "gpt-image-2.5-flare", "text-embedding-3-large"]
+        path = Path(config.configure_codex(sol, astra))
+        catalog = json.loads(Path(tomllib.loads(path.read_text())["model_catalog_json"]).read_text())
+        self.assertEqual([entry["slug"] for entry in catalog["models"]], sol)
+        astra_catalog = json.loads((Path(path).parent / "xingchi-models-astra.json").read_text())
+        self.assertEqual([entry["slug"] for entry in astra_catalog["models"]],
+                         list(dict.fromkeys((*config.group_model_ids("astra"), *astra))))
+        self.assertFalse((self.home / ".xingchi/model-routes.json").exists())
+
+    def test_reinstall_removes_legacy_astra_provider(self):
+        self.put(
+            ".codex/config.toml",
+            '[model_providers.XingchiAstra]\nname = "old Astra provider"\n'
+            'base_url = "https://example.invalid/v1"\n\n'
+            '[model_providers.XingchiAstra.capabilities]\n'
+            'remote_compaction = "unsupported"\n\n'
+            '[features]\nimage_generation = false\n',
+        )
+        path = Path(config.configure_codex())
+        text = path.read_text(encoding="utf-8")
+        settings = tomllib.loads(text)
+        self.assertNotIn("XingchiAstra", settings["model_providers"])
+        self.assertNotIn("old Astra provider", text)
+        self.assertFalse((self.home / ".xingchi/model-routes.json").exists())
 
     def test_bom_model_list_deduplicates_and_does_not_invent_reasoning_for_unknown_id(self):
         self.put(".xingchi/models.txt", "\ufeff# extras\ngpt-6-astra\ngpt-7-new # manual\ninvalid model\n")
@@ -141,18 +175,21 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(settings["model"], config.MODEL)
         self.assertEqual(settings["model_providers"]["OpenAI"]["wire_api"], "responses")
 
-    def test_reinstall_preserves_saved_model_and_reasoning_effort(self):
+    def test_reinstall_preserves_saved_model_from_selected_group_and_effort(self):
         custom_home = self.home / "Custom Codex Home"
         with patch.dict(os.environ, {"CODEX_HOME": str(custom_home)}):
-            path = Path(config.configure_codex())
-            original = path.read_text(encoding="utf-8").replace('model = "gpt-6.1-sol"', 'model = "gpt-6-astra"')
+            discovered = ["gpt-6.1-sol", "gpt-6.1-terra"]
+            path = Path(config.configure_codex(discovered))
+            original = path.read_text(encoding="utf-8").replace(
+                'model = "gpt-6.1-sol"', 'model = "gpt-6.1-terra"'
+            )
             path.write_text('model_reasoning_effort = "high"\n' + original, encoding="utf-8")
-            config.configure_codex()
+            config.configure_codex(discovered)
         settings = tomllib.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(path.parent, custom_home)
         self.assertEqual(Path(settings["model_catalog_json"]).parent, custom_home)
         self.assertEqual(settings["model_reasoning_effort"], "high")
-        self.assertEqual(settings["model"], "gpt-6-astra")
+        self.assertEqual(settings["model"], "gpt-6.1-terra")
 
     def test_compaction_override_preserves_other_provider_capabilities(self):
         for capabilities in (

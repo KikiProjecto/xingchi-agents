@@ -29,8 +29,17 @@ from socketserver import TCPServer
 
 ROOT = Path(__file__).resolve().parents[1]
 KEY = "smoke-key-123"
-PICKER_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra"]
-UPSTREAM_MODELS = ["gpt-6.1-sol", "gpt-6-astra", "gpt-6.1-terra", "gpt-6-luna", "gpt-5-test", "text-embedding-3-large"]
+ASTRA_KEY = "smoke-astra-key-456"
+UPSTREAM_MODELS = ["gpt-6.1-sol"]
+ASTRA_MODELS = [
+    "gpt-5.6-sol", "gpt-6", "gpt-5.6", "gpt-5.6-terra", "gpt-5.6-luna",
+    "gpt-6.1-terra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6-luna", "gpt-6-astra", "gpt-5.5",
+    "gpt-5.4", "gpt-5.4-mini", "gpt-5.3-codex-spark", "codex-auto-review",
+    "gpt-5.2", "gpt-image-1", "gpt-image-1.5", "gpt-image-2",
+    "gpt-image-2.5-flare", "gpt-image-2.5-sunburst", "gpt-image-2.6-flare",
+    "gpt-image-2.6-sunburst",
+]
+KNOWN_REASONING_MODELS = {"gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra", "gpt-6.1-terra"}
 
 
 def _stop_tui(process, master):
@@ -127,7 +136,9 @@ class _Handler(BaseHTTPRequestHandler):
             }
         )
         if self.command == "GET" and self.path.split("?")[0] == "/v1/models":
-            payload = json.dumps({"data": [{"id": model} for model in self.server.model_ids]}).encode()
+            authorization = self.server.requests[-1]["headers"].get("authorization")
+            models = self.server.astra_model_ids if authorization == f"Bearer {ASTRA_KEY}" else self.server.model_ids
+            payload = json.dumps({"data": [{"id": model} for model in models]}).encode()
             self.send_response(200)
         elif (self.command == "POST" and self.path == "/v1/responses"
               and getattr(self.server, "complete_responses", False)
@@ -186,6 +197,7 @@ class SmokeTests(unittest.TestCase):
         self.server = TCPServer(("127.0.0.1", 0), _Handler)
         self.server.requests = []
         self.server.model_ids = list(UPSTREAM_MODELS)
+        self.server.astra_model_ids = list(ASTRA_MODELS)
         self.server.daemon_threads = True
         port = self.server.server_address[1]
         self.upstream = f"http://127.0.0.1:{port}/v1"
@@ -196,6 +208,9 @@ class SmokeTests(unittest.TestCase):
         key_file = self.home / ".xingchi" / "upstream.key"
         key_file.write_text(KEY + "\n")
         key_file.chmod(0o600)
+        astra_key_file = self.home / ".xingchi" / "astra.key"
+        astra_key_file.write_text(ASTRA_KEY + "\n")
+        astra_key_file.chmod(0o600)
 
         # The launcher, not the environment, must supply the key.
         self.env = {
@@ -206,6 +221,7 @@ class SmokeTests(unittest.TestCase):
             "XINGCHI_HOME": str(self.home / ".xingchi"),
             "XINGCHI_UPSTREAM": self.upstream,
             "XINGCHI_API_KEY": KEY,
+            "XINGCHI_ASTRA_API_KEY": ASTRA_KEY,
         }
     def configure(self):
         configured = subprocess.run(
@@ -216,30 +232,42 @@ class SmokeTests(unittest.TestCase):
         )
         self.assertEqual(configured.returncode, 0, configured.stderr)
 
-    def test_codex_debug_catalog_lists_upstream_and_local_models_with_reasoning(self):
+    def test_codex_debug_catalog_is_scoped_to_selected_key_group(self):
         (self.home / ".xingchi" / "models.txt").write_text("# extra models\ngpt-6.2-astra\ngpt-6.1-sol\n")
         self.configure()
-        result = subprocess.run(
+        sol_result = subprocess.run(
             ["codex", "debug", "models"], env=self.env,
             capture_output=True, text=True, timeout=30,
         )
-        self.assertEqual(result.returncode, 0, result.stderr)
-        models = json.loads(result.stdout)["models"]
-        self.assertEqual([model["slug"] for model in models],
-                         PICKER_MODELS + ["gpt-6.1-terra", "gpt-5-test", "gpt-6.2-astra"])
+        self.assertEqual(sol_result.returncode, 0, sol_result.stderr)
+        sol_models = json.loads(sol_result.stdout)["models"]
+        self.assertEqual({model["slug"] for model in sol_models}, set(UPSTREAM_MODELS))
+
+        astra_result = subprocess.run(
+            ["sh", str(ROOT / "bin/xingchi-codex"), "--astra", "debug", "models"],
+            env=self.env, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(astra_result.returncode, 0, astra_result.stderr)
+        models = json.loads(astra_result.stdout)["models"]
+        self.assertEqual({model["slug"] for model in models}, set(ASTRA_MODELS))
+        self.assertIn("codex-auto-review", {model["slug"] for model in models})
+        self.assertIn("gpt-image-2.6-sunburst", {model["slug"] for model in models})
+        self.assertNotIn("gpt-6.2-astra", {model["slug"] for model in models})
         self.assertEqual(self.server.requests[0]["path"], "/v1/models")
         self.assertEqual(self.server.requests[0]["headers"].get("authorization"), f"Bearer {KEY}")
-        for model in models[:4]:
+        self.assertEqual(self.server.requests[1]["headers"].get("authorization"), f"Bearer {ASTRA_KEY}")
+        self.assertFalse((self.home / ".xingchi/model-routes.json").exists())
+        for model in models:
             with self.subTest(model=model["slug"]):
                 self.assertEqual(model["visibility"], "list")
                 self.assertTrue(model["supported_in_api"])
-                expected = ["low", "medium", "high", "xhigh", "max"]
-                if model["slug"] != "gpt-6-luna":
-                    expected.append("ultra")
-                self.assertEqual(
-                    [level["effort"] for level in model["supported_reasoning_levels"]],
-                    expected,
-                )
+                if model["slug"] in KNOWN_REASONING_MODELS:
+                    expected = ["low", "medium", "high", "xhigh", "max"]
+                    if model["slug"] != "gpt-6-luna":
+                        expected.append("ultra")
+                    self.assertEqual([level["effort"] for level in model["supported_reasoning_levels"]], expected)
+                else:
+                    self.assertEqual(model["supported_reasoning_levels"], [])
 
     def test_codex_sends_responses_request_with_key_and_model(self):
         self.configure()
@@ -270,6 +298,32 @@ class SmokeTests(unittest.TestCase):
         self.assertEqual(body["model"], "gpt-6.1-sol")
         self.assertTrue(body["stream"], "Codex must ask for a streaming response")
         self.assertIn("input", body, "the request carried no prompt input")
+
+    def test_astra_flag_selects_astra_key_and_defaults_to_astra_model(self):
+        self.configure()
+        cases = (
+            # With no model option, --astra must not start on the Sol default.
+            (["--astra", "exec", "--ephemeral", "--skip-git-repo-check", "say hi"],
+             ASTRA_KEY, "gpt-6-astra"),
+            # The chosen key remains Astra even if a caller explicitly selects
+            # a model also advertised by Sol; there is no model-based routing.
+            (["--astra", "exec", "--ephemeral", "--skip-git-repo-check", "-m",
+              "gpt-6.1-sol", "say hi"], ASTRA_KEY, "gpt-6.1-sol"),
+            (["exec", "--ephemeral", "--skip-git-repo-check", "say hi"],
+             KEY, "gpt-6.1-sol"),
+        )
+        for args, expected_key, expected_model in cases:
+            with self.subTest(model=expected_model):
+                self.server.requests.clear()
+                result = subprocess.run(
+                    ["sh", str(ROOT / "bin/xingchi-codex"), *args],
+                    env=self.env, capture_output=True, text=True, timeout=30,
+                )
+                posts = [request for request in self.server.requests
+                         if request["method"] == "POST" and request["path"] == "/v1/responses"]
+                self.assertTrue(posts, result.stderr + result.stdout)
+                self.assertEqual(posts[0]["headers"].get("authorization"), f"Bearer {expected_key}")
+                self.assertEqual(json.loads(posts[0]["body"])["model"], expected_model)
 
     def test_launcher_fails_before_network_when_key_is_missing(self):
         (self.home / ".xingchi" / "upstream.key").unlink()
@@ -315,36 +369,46 @@ class SmokeTests(unittest.TestCase):
 
     def test_codex_sends_selected_model_and_reasoning_effort(self):
         self.configure()
-        catalog = json.loads((ROOT / "lib/models.json").read_text(encoding="utf-8"))["models"]
-        for entry in catalog:
-            model = entry["slug"]
-            for level in entry["supported_reasoning_levels"]:
-                effort = level["effort"]
-                with self.subTest(model=model, effort=effort):
-                    self.server.requests.clear()
-                    result = subprocess.run(
-                        ["sh", str(ROOT / "bin/xingchi-codex"), "exec", "--ephemeral",
-                         "--skip-git-repo-check", "-m", model,
-                         "-c", f'model_reasoning_effort="{effort}"', "say hi"],
-                        env=self.env, capture_output=True, text=True, timeout=30,
-                    )
-                    posts = [r for r in self.server.requests if r["path"] == "/v1/responses"]
-                    self.assertTrue(posts, result.stderr)
-                    body = json.loads(posts[0]["body"])
-                    self.assertEqual(body["model"], model)
-                    # Ultra is a client preset; Codex 0.170.0 sends Max on
-                    # the wire while retaining Ultra as the selected preset.
-                    expected_effort = "max" if effort == "ultra" else effort
-                    self.assertEqual(body["reasoning"]["effort"], expected_effort)
+        catalogs = [
+            ("sol", self.home / ".codex/xingchi-models.json", []),
+            ("astra", self.home / ".codex/xingchi-models-astra.json", ["--astra"]),
+        ]
+        for group, catalog_path, group_args in catalogs:
+            catalog = json.loads(catalog_path.read_text(encoding="utf-8"))["models"]
+            for entry in catalog:
+                model = entry["slug"]
+                for level in entry["supported_reasoning_levels"]:
+                    effort = level["effort"]
+                    with self.subTest(group=group, model=model, effort=effort):
+                        self.server.requests.clear()
+                        result = subprocess.run(
+                            ["sh", str(ROOT / "bin/xingchi-codex"), *group_args, "exec", "--ephemeral",
+                             "--skip-git-repo-check", "-m", model,
+                             "-c", f'model_reasoning_effort="{effort}"', "say hi"],
+                            env=self.env, capture_output=True, text=True, timeout=30,
+                        )
+                        posts = [r for r in self.server.requests if r["path"] == "/v1/responses"]
+                        self.assertTrue(posts, result.stderr)
+                        body = json.loads(posts[0]["body"])
+                        self.assertEqual(body["model"], model)
+                        expected_key = ASTRA_KEY if group == "astra" else KEY
+                        self.assertEqual(posts[0]["headers"].get("authorization"), f"Bearer {expected_key}")
+                        expected_effort = "max" if effort == "ultra" else effort
+                        self.assertEqual(body["reasoning"]["effort"], expected_effort)
 
-    def test_fresh_installed_picker_has_four_models_and_saves_luna_max(self):
+    def test_fresh_installed_picker_is_sol_scoped_and_saves_effort(self):
         import fcntl
         import pty
         import termios
 
         self.server.model_ids = ["gpt-6.1-sol"]
+        self.server.astra_model_ids = []
         installed = subprocess.run(
-            ["sh", str(ROOT / "install.sh"), "--yes"], env=self.env,
+            ["sh", str(ROOT / "install.sh"), "--yes"],
+            # This test exercises the real model picker. MCP startup has its
+            # own integration coverage and optional uvx/npx cache writers can
+            # otherwise race TemporaryDirectory cleanup on Python 3.14.
+            env={**self.env, "XINGCHI_SKIP_INTEGRATIONS": "1"},
             capture_output=True, text=True, timeout=30,
         )
         self.assertEqual(installed.returncode, 0, installed.stderr + installed.stdout)
@@ -403,25 +467,24 @@ class SmokeTests(unittest.TestCase):
         os.write(master, b"/model")
         pump(0.2)
         os.write(master, b"\r")
-        pump(10, until="GPT-6 Terra on Xingchi")
-        for label in ("GPT-6.1 Sol", "GPT-6 Astra", "GPT-6 Luna", "GPT-6 Terra"):
-            self.assertIn(label, clean_output())
-        down(2)
+        pump(10, until="GPT-6.1 Sol on Xingchi")
+        self.assertNotIn("GPT-6 Astra on Xingchi", clean_output())
+        self.assertNotIn("GPT-6 Luna on Xingchi", clean_output())
         os.write(master, b"\r")
         pump(10, until="More reasoning")
         pump(0.2)
-        down(3)
+        down(4)
         os.write(master, b"\r")
-        pump(0.5)
+        pump(10, until="2. Ultra")
         os.write(master, b"\r")
 
         def selection_saved():
             saved = tomllib.loads(config_path.read_text(encoding="utf-8"))
-            return saved.get("model") == "gpt-6-luna" and saved.get("model_reasoning_effort") == "max"
+            return saved.get("model") == "gpt-6.1-sol" and saved.get("model_reasoning_effort") == "max"
 
         pump(10, condition=selection_saved)
         saved = tomllib.loads(config_path.read_text(encoding="utf-8"))
-        self.assertEqual(saved["model"], "gpt-6-luna")
+        self.assertEqual(saved["model"], "gpt-6.1-sol")
         self.assertEqual(saved["model_reasoning_effort"], "max")
         self.assertFalse(any(r["method"] == "POST" for r in self.server.requests))
 
