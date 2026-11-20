@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "deploy-contract",
+  "owner": "gabrielfior",
+  "repo": "ai-village-open-agents",
+  "path": ".opencode/skills/deploy-contract",
+  "branch": "main",
+  "sha": "9d452747875397cf5963ad2c1d6ab3dc1cdda080",
+  "source": "manual"
+}

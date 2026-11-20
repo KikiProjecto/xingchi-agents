@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "game-development",
+  "owner": "sickn33",
+  "repo": "antigravity-awesome-skills",
+  "path": "plugins/agentic-awesome-skills-claude/skills/game-development",
+  "branch": "main",
+  "sha": "c9620a3573e7608661c6f7169f57ee3ec4124951",
+  "source": "manual"
+}

@@ -181,6 +181,33 @@ and the other remains in place but is disabled through a single managed
 `skills.config` block. The choices are recorded in
 `~/.xingchi/skill-conflicts.json`.
 
+### Project-local skill collection
+
+To make a reviewable project-local copy of skills from all three user roots,
+run:
+
+```sh
+python3 scripts/sync-skills.py
+```
+
+The utility copies skill directories into the public `skills/` directory
+without modifying the originals. It deduplicates identical same-name skills,
+gives divergent same-name variants deterministic `--variant-<hash>` names, and
+writes a review inventory to `skills/LIST.md`. The sync stops rather than
+overwriting a non-empty existing `skills/` directory. The generated bundle is
+intended to be reviewed, staged, committed, and published with this project;
+it is separate from the home-level unified skill links used by an installed
+`xingchi-codex` command. Runtime state, dependencies, credentials, local
+repository metadata, and common secret-bearing files are excluded. Textual
+absolute home-directory paths are redacted as `<HOME>`. Third-party license
+and redistribution terms still require human review before publishing.
+
+The bundle is not automatically installed into home-level skill roots by the
+installers. Installers continue to manage the user's unified home skill root
+and MCP configuration, while this directory is the auditable public snapshot.
+Run the utility again only after moving or removing the current project-local
+copy.
+
 The integration step preserves every existing `mcp_servers` entry and adds
 portable definitions for the current Codex MCP set when an entry is absent:
 

@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "clean-code",
+  "owner": "markky21",
+  "repo": "claude-skills",
+  "path": "plugins/my-personal-tools/skills/clean-code",
+  "branch": "main",
+  "sha": "c08bf6da2326e373203e3b2fd0770a7f73457dfb",
+  "source": "manual"
+}

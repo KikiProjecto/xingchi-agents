@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "threejs",
+  "owner": "nexu-io",
+  "repo": "open-design",
+  "path": "skills/threejs",
+  "branch": "main",
+  "sha": "0f7120d1ff37596b8d27fe6c144dad8b1d247eeb",
+  "source": "manual"
+}

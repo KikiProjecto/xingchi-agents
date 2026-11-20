@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "unity-quickstart",
+  "owner": "nethereum",
+  "repo": "nethereum",
+  "path": "plugins/nethereum-skills/skills/unity-quickstart",
+  "branch": "master",
+  "sha": "c9b86bf31169cbb5f10b2f5df1d56cc31612e6eb",
+  "source": "manual"
+}

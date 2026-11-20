@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "code-standards",
+  "owner": "marcioaltoe",
+  "repo": "claude-craftkit",
+  "path": "plugins/architecture-design/skills/code-standards",
+  "branch": "main",
+  "sha": "4d6fe7123e63ade0f3e22b9e406790618a80d0c6",
+  "source": "manual"
+}

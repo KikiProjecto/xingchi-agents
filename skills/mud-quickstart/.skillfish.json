@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "mud-quickstart",
+  "owner": "nethereum",
+  "repo": "nethereum",
+  "path": "plugins/nethereum-skills/skills/mud-quickstart",
+  "branch": "master",
+  "sha": "934b6bac8da4d0f805d55eb8d0048ba1bf2f9a85",
+  "source": "manual"
+}

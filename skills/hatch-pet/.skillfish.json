@@ -1,0 +1,10 @@
+{
+  "version": 2,
+  "name": "hatch-pet",
+  "owner": "nexu-io",
+  "repo": "open-design",
+  "path": "plugins/_official/examples/hatch-pet",
+  "branch": "main",
+  "sha": "a837ef2b2e3ac78eb960a22f464edf27a46372a7",
+  "source": "manual"
+}
