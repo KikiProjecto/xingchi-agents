@@ -56,13 +56,17 @@ def scan_skills(root):
         directory = pending.pop()
         if not directory.is_dir():
             continue
-        directory = directory.resolve()
-        if directory in seen:
+        canonical = directory.resolve()
+        if canonical in seen:
             continue
-        seen.add(directory)
+        seen.add(canonical)
         skill = directory / "SKILL.md"
         if skill.is_file():
-            yield skill.resolve()
+            # Keep the user's lexical path for config/report output. Use the
+            # canonical path only for cycle detection and duplicate matching;
+            # on macOS, /var and /private/var are equivalent but not identical
+            # strings to callers and tests.
+            yield skill
         pending.extend(reversed(sorted(p for p in directory.iterdir()
                                        if not p.name.startswith(".") and p.name not in SKIP_DIRS
                                        and p.is_dir())))
@@ -71,7 +75,7 @@ def scan_skills(root):
 def is_enabled(name, path, rules):
     enabled = True
     for rule in rules:
-        if rule.get("name") == name or ("path" in rule and Path(rule["path"]).resolve() == path):
+        if rule.get("name") == name or ("path" in rule and Path(rule["path"]).resolve() == path.resolve()):
             enabled = rule["enabled"]
     return enabled
 
@@ -93,12 +97,13 @@ def plan_skills(home, codex_home, rules):
             inventories[resolved] = list(scan_skills(resolved))
         paths = inventories[resolved]
         if root == shared:
-            shared_files.update(paths)
+            shared_files.update(path.resolve() for path in paths)
         for path in paths:
-            if path in known:
+            canonical_path = path.resolve()
+            if canonical_path in known:
                 continue
             name = skill_name(path)
-            known[path] = name
+            known[canonical_path] = name
             if not name or not is_enabled(name, path, rules):
                 continue
             key = name.casefold()
@@ -113,7 +118,7 @@ def plan_skills(home, codex_home, rules):
     for source, path, name in winners.values():
         if source == 0:
             continue
-        if path in shared_files:
+        if path.resolve() in shared_files:
             if find_existing_link(shared, path.parent) is not None:
                 reused += 1
             continue

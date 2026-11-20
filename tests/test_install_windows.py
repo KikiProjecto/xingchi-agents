@@ -191,6 +191,8 @@ class WindowsInstallTests(unittest.TestCase):
                 env=self.env,
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=180,
             )
         self.assertEqual(

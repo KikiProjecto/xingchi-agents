@@ -303,7 +303,7 @@ class LauncherTests(unittest.TestCase):
                 ["sh", str(ROOT / "install.sh"), "--yes"],
                 env={
                     "HOME": str(home),
-                    "PATH": str(fakepath) + os.pathsep + "/usr/bin:/bin",
+                    "PATH": str(fakepath) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                     "XINGCHI_HOME": str(home / ".xingchi"),
                     "XINGCHI_BIN": str(home / "bin"),
                     "XINGCHI_UPSTREAM": "http://127.0.0.1:9/v1",
@@ -367,7 +367,7 @@ class LauncherTests(unittest.TestCase):
             npm_log = home / "npm.log"
             result = subprocess.run(
                 ["sh", str(ROOT / "install.sh"), "--yes"],
-                env={"HOME": str(home), "PATH": str(fakepath) + os.pathsep + "/usr/bin:/bin",
+                env={"HOME": str(home), "PATH": str(fakepath) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                      "CODEX_HOME": str(codex_home), "XINGCHI_HOME": str(xingchi_home),
                      "XINGCHI_BIN": str(home / "bin"), "XINGCHI_API_KEY": "test-key",
                      "XINGCHI_UPSTREAM": "http://127.0.0.1:9/v1", "SHELL": "/bin/sh",
