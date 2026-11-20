@@ -223,6 +223,7 @@ class WindowsInstallTests(unittest.TestCase):
         self.assertIn("model_catalog_json = " + json.dumps(str(catalog_path), ensure_ascii=False), config)
         self.assertNotIn("model_reasoning_effort", config)
         settings = tomllib.loads(config)
+        self.assertEqual(settings["model_providers"]["OpenAI"]["capabilities"]["remote_compaction"], "unsupported")
         self.assertEqual(settings["features"], {
             "api_key_model_discovery": True, "image_generation": True, "goals": True,
         })
@@ -270,6 +271,7 @@ class WindowsInstallTests(unittest.TestCase):
         settings = tomllib.loads(path.read_text(encoding="utf-8"))
         self.assertEqual(settings["model"], "gpt-6-astra")
         self.assertEqual(settings["model_reasoning_effort"], "ultra")
+        self.assertEqual(settings["model_providers"]["OpenAI"]["capabilities"]["remote_compaction"], "unsupported")
 
 
 if __name__ == "__main__":

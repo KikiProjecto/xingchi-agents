@@ -140,7 +140,7 @@ fi
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [3/3] Installing the model catalog, reasoning menus and launchers"
+echo " [3/3] Installing Codex configuration, model catalog and launchers"
 echo "============================================================"
 XINGCHI_API_KEY=$upstream XINGCHI_UPSTREAM=$UPSTREAM XINGCHI_HOME=$XDIR \
   python3 "$SRC/lib/config.py" codex || die "config for codex failed"

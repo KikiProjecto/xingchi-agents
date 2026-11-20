@@ -169,6 +169,7 @@ class LauncherTests(unittest.TestCase):
             self.assertTrue(launcher.exists())
             self.assertEqual(launcher.stat().st_mode & 0o777, 0o755)
             settings = tomllib.loads(config_text)
+            self.assertEqual(settings["model_providers"]["OpenAI"]["capabilities"]["remote_compaction"], "unsupported")
             catalog = json.loads(Path(settings["model_catalog_json"]).read_text())
             self.assertEqual([model["slug"] for model in catalog["models"]],
                              ["gpt-6.1-sol", "gpt-6-astra", "gpt-6-luna", "gpt-6-terra"])
@@ -211,6 +212,7 @@ class LauncherTests(unittest.TestCase):
             self.assertEqual(settings["model"], "gpt-6-luna")
             self.assertEqual(settings["model_reasoning_effort"], "max")
             self.assertEqual(Path(settings["model_catalog_json"]).parent, codex_home)
+            self.assertEqual(settings["model_providers"]["OpenAI"]["capabilities"]["remote_compaction"], "unsupported")
 
     def test_installer_restores_echo_if_key_prompt_is_interrupted(self):
         unix = (ROOT / "install.sh").read_text()

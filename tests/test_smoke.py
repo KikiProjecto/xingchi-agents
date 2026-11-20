@@ -129,6 +129,34 @@ class _Handler(BaseHTTPRequestHandler):
         if self.command == "GET" and self.path.split("?")[0] == "/v1/models":
             payload = json.dumps({"data": [{"id": model} for model in self.server.model_ids]}).encode()
             self.send_response(200)
+        elif (self.command == "POST" and self.path == "/v1/responses"
+              and getattr(self.server, "complete_responses", False)
+              and not any(item.get("type") == "compaction_trigger"
+                          for item in json.loads(self.server.requests[-1]["body"])["input"])):
+            body = json.loads(self.server.requests[-1]["body"])
+            compacting = not body.get("tools")
+            message = {
+                "id": "msg_smoke", "type": "message", "role": "assistant", "phase": "final_answer",
+                "content": [{"type": "output_text", "text": "Smoke summary." if compacting else "Smoke reply."}],
+            }
+            # A large reported usage makes the next turn need automatic compaction.
+            input_tokens = 100 if compacting else 60000
+            events = [
+                {"type": "response.created", "response": {"id": "resp_smoke", "status": "in_progress", "output": []}},
+                {"type": "response.output_item.done", "output_index": 0, "item": message},
+                {"type": "response.completed", "response": {
+                    "id": "resp_smoke", "status": "completed", "output": [message],
+                    "usage": {"input_tokens": input_tokens, "output_tokens": 10, "total_tokens": input_tokens + 10},
+                }},
+            ]
+            payload = "".join("event: " + event["type"] + "\ndata: " + json.dumps(event) + "\n\n"
+                              for event in events).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+            return
         else:
             # Fail fast: we only care about what Codex sent.
             payload = b'{"error":{"message":"smoke","type":"invalid_request_error"}}'
@@ -255,6 +283,35 @@ class SmokeTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("API key missing", result.stderr)
         self.assertEqual(self.server.requests, [])
+
+    def test_resumed_session_compacts_with_regular_responses(self):
+        self.configure()
+        self.server.complete_responses = True
+        path = self.home / ".codex/config.toml"
+        path.write_text('model_auto_compact_token_limit = 50000\n' + path.read_text(encoding="utf-8"), encoding="utf-8")
+        launcher = ["sh", str(ROOT / "bin/xingchi-codex"), "exec"]
+        first = subprocess.run(
+            [*launcher, "--skip-git-repo-check", "--json", "Say hello."],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        events = [json.loads(line) for line in first.stdout.splitlines() if line.startswith("{")]
+        thread_id = next(event["thread_id"] for event in events if event.get("type") == "thread.started")
+        self.server.requests.clear()
+
+        resumed = subprocess.run(
+            [*launcher, "resume", "--skip-git-repo-check", "--json", thread_id, "Continue the conversation."],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(resumed.returncode, 0, resumed.stderr + resumed.stdout)
+        posts = [r for r in self.server.requests if r["method"] == "POST"]
+        bodies = [json.loads(r["body"]) for r in posts]
+        self.assertGreaterEqual(len(bodies), 2, "Expected a compaction request followed by a normal reply")
+        self.assertTrue(all(r["path"] == "/v1/responses" for r in posts))
+        self.assertFalse(bodies[0].get("tools"), "The first request should summarize history")
+        self.assertTrue(bodies[-1].get("tools"), "The resumed conversation should continue after compaction")
+        self.assertFalse(any(item.get("type") == "compaction_trigger" for body in bodies for item in body["input"]))
+        self.assertTrue(any("Smoke summary." in json.dumps(item) for item in bodies[-1]["input"]))
 
     def test_codex_sends_selected_model_and_reasoning_effort(self):
         self.configure()

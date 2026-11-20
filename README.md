@@ -53,7 +53,8 @@ The installer:
 2. Installs or updates the Codex CLI (`npm install -g @openai/codex`) when it
    is missing or older than the supported minimum, 0.170.0.
 3. Checks your key and reads the list of models from `/v1/models`, then writes
-   the four-model catalog, reasoning presets, feature defaults and launchers.
+   the four-model catalog, reasoning presets, compaction compatibility setting,
+   feature defaults and launchers.
 
 If the upstream rejects the key (`401`/`403`) the installer exits non-zero and
 tells you to get a new key, so a failed check never looks like a finished
@@ -92,6 +93,7 @@ wire_api = "responses"
 requires_openai_auth = false
 experimental_bearer_token = "<your key>"
 http_headers = { "x-openai-actor-authorization" = "local-image-extension" }
+capabilities.remote_compaction = "unsupported"
 
 [features]
 api_key_model_discovery = true
@@ -105,6 +107,11 @@ catalog. The feature values above are defaults for a fresh install; explicitly
 saved feature choices are retained on reinstall. The installer also preserves
 your saved model (if still in the catalog) and reasoning level. It does not
 force one reasoning level for every model.
+
+Compaction uses ordinary Responses requests to summarize conversation history.
+The provider override above disables Codex's remote compaction v2 protocol,
+whose `compaction_trigger` input fails on Xingchi. This keeps compaction
+available for long sessions and `/compact`.
 
 On Windows, the default Codex directory is `%USERPROFILE%\.codex`, and the
 launchers are installed under `%LOCALAPPDATA%\xingchi\bin`.
@@ -177,6 +184,7 @@ command-line `-c` override applies to that invocation.
 | `client_not_allowed` | The upstream rejects scripts/SDKs/proxies. Use the Codex CLI directly, not curl or a proxy. |
 | `model_not_found` | Xingchi rejected that exact model ID for your account group. Check which ID Xingchi lists during install, or ask Xingchi to enable it. |
 | `Upstream request failed` (`upstream_error`, HTTP 400) | Xingchi rejects the `custom_tool_call` items Codex writes for its experimental Code Mode `exec` tool. The generated catalog keeps that tool off; a session started before this fix still replays those items, so start a new `xingchi-codex` session instead of resuming the old one. |
+| `Error running remote compact task` | Rerun the updated installer, restart `xingchi-codex`, and resume the session. The provider must set `capabilities.remote_compaction = "unsupported"` so compaction uses ordinary Responses requests. |
 | `401` on install | The key is wrong or expired. Create a new one at <https://xingchiapi.com/keys>. |
 | Restart needed | If Codex was already running, fully quit it so it reloads `~/.codex/config.toml`. |
 
@@ -188,6 +196,38 @@ mv ~/.codex/config.toml.xingchi.bak ~/.codex/config.toml
 
 The installer adds the launcher directory to your shell PATH if needed.
 
+### MCP startup errors
+
+MCP servers in your existing Codex config are preserved during installation.
+Fix their entries in `~/.codex/config.toml` (`%USERPROFILE%\.codex\config.toml`
+on Windows, or under `CODEX_HOME` when set):
+
+```toml
+[mcp_servers.filesystem]
+command = "npx"
+args = ["-y", "@modelcontextprotocol/server-filesystem", "/absolute/path/to/an/existing/projects/directory"]
+
+[mcp_servers.github]
+url = "https://api.githubcopilot.com/mcp/"
+bearer_token_env_var = "GITHUB_PAT_TOKEN"
+
+[mcp_servers.supabase]
+url = "https://mcp.supabase.com/mcp"
+```
+
+Replace the filesystem path with an existing directory you want the server
+to access. On Windows, use a path such as `C:/Users/yourname/Projects`.
+The sample `/path/to/your/projects` makes the server exit during startup.
+
+GitHub needs `GITHUB_PAT_TOKEN` exported in the terminal that launches
+`xingchi-codex`; setting up the URL alone does not authenticate it. In
+PowerShell, the corresponding environment variable is `$env:GITHUB_PAT_TOKEN`.
+Enter your token locally; do not commit it to this repository.
+
+Authenticate Supabase with `codex mcp login supabase`, then restart
+`xingchi-codex` and check `/mcp`. A Cloudflare 403 can block access separately
+from authentication; a corrected URL does not establish a working connection.
+
 ## Development checks
 
 With Python 3.11+:
@@ -197,9 +237,9 @@ python3 -m unittest discover -s tests
 ```
 
 The tests cover fresh installs, CLI upgrades, saved selections, all advertised
-reasoning values, and the real Codex model/effort menus against a local fake
-upstream. Native Windows installer tests run on Windows. No paid API requests
-are used by the suite.
+reasoning values, resumed-session compaction, and the real Codex model/effort
+menus against a local fake upstream. Native Windows installer tests run on
+Windows. No paid API requests are used by the suite.
 
 ## Uninstall
 

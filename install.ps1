@@ -153,7 +153,7 @@ $CliVersion = (& codex --version 2>$null | Out-String).Trim()
 & $python (Join-Path $SelfDir 'lib\config.py') check-cli $CliVersion
 if ($LASTEXITCODE -ne 0) { throw 'Codex update did not install a compatible CLI' }
 
-Write-Host "`n[3/3] Installing the model catalog, reasoning menus and launchers"
+Write-Host "`n[3/3] Installing Codex configuration, model catalog and launchers"
 $env:XINGCHI_API_KEY = $ApiKey
 $env:XINGCHI_UPSTREAM = $BaseUrl
 $env:XINGCHI_HOME = $XDir

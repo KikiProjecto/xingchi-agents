@@ -59,6 +59,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(provider["wire_api"], "responses")
         self.assertFalse(provider["requires_openai_auth"])
         self.assertEqual(provider["experimental_bearer_token"], "fake-key")
+        self.assertEqual(provider["capabilities"]["remote_compaction"], "unsupported")
         self.assertEqual(
             provider["http_headers"]["x-openai-actor-authorization"],
             "local-image-extension",
@@ -152,6 +153,30 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(Path(settings["model_catalog_json"]).parent, custom_home)
         self.assertEqual(settings["model_reasoning_effort"], "high")
         self.assertEqual(settings["model"], "gpt-6-astra")
+
+    def test_compaction_override_preserves_other_provider_capabilities(self):
+        for capabilities in (
+            'capabilities = { remote_compaction = "v2", external_web_access = false }\n',
+            'capabilities = { external_web_access = false, remote_compaction = "v2" }\n',
+            'capabilities = { external_web_access = false }\n',
+            'capabilities.remote_compaction = "v2"\ncapabilities.external_web_access = false\n',
+            '[model_providers.OpenAI.capabilities]\nremote_compaction = "v2"\nexternal_web_access = false\n',
+        ):
+            with self.subTest(capabilities=capabilities):
+                path = self.put(".codex/config.toml", '[model_providers.OpenAI]\n' + capabilities)
+                config.configure_codex()
+                config.configure_codex()
+                provider = tomllib.loads(path.read_text())["model_providers"]["OpenAI"]
+                self.assertEqual(provider["capabilities"], {
+                    "remote_compaction": "unsupported", "external_web_access": False,
+                })
+
+    def test_multiline_capabilities_rejected_without_write(self):
+        original = '[model_providers.OpenAI]\ncapabilities = {\nremote_compaction = "v2"\n}\n'
+        path = self.put(".codex/config.toml", original)
+        with self.assertRaises(SystemExit):
+            config.configure_codex()
+        self.assertEqual(path.read_text(), original)
 
     def test_multiline_rejected_without_write(self):
         original = 'model = """old\nvalue"""\n'

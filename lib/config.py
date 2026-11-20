@@ -196,6 +196,23 @@ def configure_codex(discovered=()):
                     if not re.search(r"(?m)^[ \t]*" + re.escape(name) + r"[ \t]*=", body)}
     targets = {"": root, "[model_providers.OpenAI]": provider, "[features]": features}
 
+    # OpenAI-named providers default to remote compaction v2. Xingchi rejects
+    # its compaction_trigger input, so summarize through ordinary Responses.
+    capability_header = "[model_providers.OpenAI.capabilities]"
+    if capability_header in headers:
+        targets[capability_header] = {"remote_compaction": '"unsupported"'}
+    else:
+        body = blocks[headers.index("[model_providers.OpenAI]")] if "[model_providers.OpenAI]" in headers else ""
+        inline = re.search(r"(?m)^[ \t]*capabilities[ \t]*=[ \t]*([^\n]*)", body)
+        if inline:
+            match = re.fullmatch(r"\{([^{}]*)\}[ \t]*(?:#.*)?", inline[1].strip())
+            if not match:
+                fail("Codex capabilities must use a single-line inline table or a section; config unchanged")
+            fields = re.sub(r'''(?:\bremote_compaction|"remote_compaction"|'remote_compaction')[ \t]*=[ \t]*(?:"[^"\n]*"|'[^'\n]*')[ \t]*,?''', "", match[1]).strip().rstrip(",")
+            provider["capabilities"] = "{ " + (fields + ", " if fields else "") + 'remote_compaction = "unsupported" }'
+        else:
+            provider["capabilities.remote_compaction"] = '"unsupported"'
+
     for header, values in targets.items():
         if header in headers:
             index = headers.index(header)
@@ -228,6 +245,7 @@ def main():
     print(f"  configured {configure_codex(discovered)}")
     print("  /model: " + ", ".join(MODELS))
     print("  reasoning: choose per model; saved model and effort are preserved")
+    print("  compaction: summarize through ordinary Responses requests")
     if discovered:
         missing = [model for model in MODELS if model not in discovered]
         if missing:
