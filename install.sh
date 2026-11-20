@@ -1,7 +1,7 @@
 #!/bin/sh
 # xingchi-codex installer for macOS and Linux.
 # Points the Codex CLI at the Xingchi upstream (OpenAI Responses API).
-# No local proxy, one key.
+# Sol is required; Astra is optional and selected explicitly with --astra.
 set -eu
 
 REPO=${XINGCHI_REPO:-kikiprojecto/xingchi-codex}
@@ -10,6 +10,8 @@ XDIR=${XINGCHI_HOME:-$HOME/.xingchi}
 BIN=${XINGCHI_BIN:-$HOME/.local/bin}
 UPSTREAM=${XINGCHI_UPSTREAM:-https://api.xingchiapi.com/v1}
 MODEL=gpt-6.1-sol
+CODEX_DIR=${CODEX_HOME:-$HOME/.codex}
+SHARED_SKILLS=$HOME/.agents/skills
 
 die() { echo "error: $*" >&2; exit 1; }
 
@@ -18,11 +20,30 @@ usage() {
 usage: install.sh [--yes]
 
 Configures Codex for Xingchi (default: $MODEL).
-Stores your Xingchi API key in $XDIR/upstream.key (mode 600) and writes
-config.toml and a four-model catalog under CODEX_HOME (default ~/.codex).
-Connects directly to $UPSTREAM. Choose model and reasoning with /model.
+The required GPT公益/Sol key is stored in $XDIR/upstream.key (mode 600).
+The optional Astra-专属余额 key is stored in $XDIR/astra.key (mode 600).
+Each key is queried independently and gets its own catalog under
+CODEX_HOME (default ~/.codex): xingchi-models.json and
+xingchi-models-astra.json.
+  Connects directly to $UPSTREAM. The default launcher uses GPT公益/Sol;
+  xingchi-codex --astra selects Astra for that whole session.
 
-  --yes     never prompt; requires XINGCHI_API_KEY
+  --yes     never prompt; requires XINGCHI_API_KEY; Astra is optional
+
+Environment variables:
+  XINGCHI_API_KEY          required GPT公益/Sol key (interactive prompt is safer)
+  XINGCHI_ASTRA_API_KEY    optional Astra-专属余额 key
+  XINGCHI_SKIP_INTEGRATIONS=1
+                            leave unified skills and MCP settings untouched
+
+After installation:
+  xingchi-codex                 GPT公益/Sol (default)
+  xingchi-codex --astra         Astra-专属余额
+  xingchi-codex -m gpt-6.1-sol  choose a specific model
+  xingchi-codex --astra -m gpt-6-astra
+  /model                       choose model and reasoning effort in Codex
+At the optional Astra prompt, press Enter to configure GPT公益/Sol only.
+An existing $XDIR/astra.key is reused; remove that file to stop storing the Astra key.
 EOF
 }
 
@@ -46,7 +67,7 @@ if [ -z "$SRC" ] || [ ! -f "$SRC/lib/config.py" ] || [ ! -f "$SRC/lib/models.jso
   exec sh "$bootstrap/xingchi-codex-$BRANCH/install.sh" "$@"
 fi
 
-# Pre-flight: Python 3 (used to merge ~/.codex/config.toml safely)
+# Pre-flight: Python 3.11+ for native TOML validation.
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 missing, attempting automatic installation..."
   if command -v apt-get >/dev/null 2>&1; then
@@ -64,6 +85,7 @@ if ! command -v python3 >/dev/null 2>&1; then
   fi
   command -v python3 >/dev/null 2>&1 || die "install python3, then re-run installer"
 fi
+python3 -c 'import tomllib' 2>/dev/null || die "install Python 3.11 or newer, then re-run installer"
 
 umask 077
 mkdir -p "$XDIR" "$BIN"
@@ -74,7 +96,7 @@ chmod 700 "$XDIR"
 # -----------------------------------------------------------------------------
 echo
 echo "============================================================"
-echo " [1/3] Xingchi API key"
+echo " [1/3] GPT公益/Sol API key + optional Astra-专属余额 API key"
 echo "============================================================"
 upstream=${XINGCHI_API_KEY:-}
 if [ -n "$upstream" ]; then
@@ -89,7 +111,7 @@ if [ -z "$upstream" ]; then
   if [ "$ASSUME_YES" = 1 ] || ! (exec </dev/tty) 2>/dev/null; then
     die "set XINGCHI_API_KEY (your xingchiapi key) or run interactively"
   fi
-  printf 'Your Xingchi API key spends paid account credits.\n' >/dev/tty
+  printf 'Your GPT公益/Sol Xingchi API key spends account credits.\n' >/dev/tty
   printf 'It is stored only in %s/upstream.key (mode 600).\n' "$XDIR" >/dev/tty
   printf 'Create one at https://xingchiapi.com/keys, then paste it here\n' >/dev/tty
   printf '(input is hidden, press Enter): ' >/dev/tty
@@ -107,6 +129,30 @@ upstream=$(printf '%s' "$upstream" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:s
 [ -n "$upstream" ] || die "empty API key"
 printf '%s\n' "$upstream" > "$XDIR/upstream.key"
 chmod 600 "$XDIR/upstream.key"
+
+astra=${XINGCHI_ASTRA_API_KEY:-}
+if [ -z "$astra" ] && [ -s "$XDIR/astra.key" ]; then
+  astra=$(cat "$XDIR/astra.key")
+  echo "  reusing optional Astra key from $XDIR/astra.key"
+fi
+if [ -z "$astra" ] && [ "$ASSUME_YES" != 1 ] && (exec </dev/tty) 2>/dev/null; then
+  printf '\nOptional Astra key (press Enter to use Sol only).\n' >/dev/tty
+  printf 'Paste your Astra key (input is hidden): ' >/dev/tty
+  stty -echo </dev/tty 2>/dev/null || true
+  trap 'stty echo </dev/tty 2>/dev/null || true; exit 130' INT TERM HUP
+  IFS= read -r astra </dev/tty || astra=""
+  stty echo </dev/tty 2>/dev/null || true
+  trap - INT TERM HUP
+  printf '\n' >/dev/tty
+fi
+astra=$(printf '%s' "$astra" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+if [ -n "$astra" ]; then
+  printf '%s\n' "$astra" > "$XDIR/astra.key"
+  chmod 600 "$XDIR/astra.key"
+  echo "  optional Astra key configured"
+else
+  echo "  optional Astra key not configured (xingchi-codex --astra unavailable)"
+fi
 
 # -----------------------------------------------------------------------------
 # STEP 2: Codex CLI
@@ -142,13 +188,26 @@ echo
 echo "============================================================"
 echo " [3/3] Installing Codex configuration, model catalog and launchers"
 echo "============================================================"
-XINGCHI_API_KEY=$upstream XINGCHI_UPSTREAM=$UPSTREAM XINGCHI_HOME=$XDIR \
+XINGCHI_API_KEY=$upstream XINGCHI_ASTRA_API_KEY=$astra XINGCHI_UPSTREAM=$UPSTREAM XINGCHI_HOME=$XDIR \
   python3 "$SRC/lib/config.py" codex || die "config for codex failed"
 
+# Install the launchers before the optional integration step. The config now
+# names XINGCHI_API_KEY as the provider env key, so an old launcher left in
+# place after a later integration error makes Codex start with
+# "Missing environment variable: XINGCHI_API_KEY".
 cp "$SRC/bin/xingchi-codex" "$BIN/xingchi-codex"
 cp "$SRC/bin/xingchi" "$BIN/xingchi"
-chmod 755 "$BIN/xingchi-codex" "$BIN/xingchi"
+cp "$SRC/bin/xingchi-codex-runner.py" "$BIN/xingchi-codex-runner.py"
+chmod 755 "$BIN/xingchi-codex" "$BIN/xingchi" "$BIN/xingchi-codex-runner.py"
 echo "  installed $BIN/xingchi-codex"
+
+if [ "${XINGCHI_SKIP_INTEGRATIONS:-}" != 1 ]; then
+  XINGCHI_HOME=$XDIR python3 "$SRC/lib/integrations.py" || die "skill and MCP configuration failed"
+  echo "  unified skills: $SHARED_SKILLS"
+  echo "  MCP definitions: merged into $CODEX_DIR/config.toml (credentialed servers stay inactive until configured)"
+else
+  echo "  integrations skipped: existing skills and MCP settings were left untouched"
+fi
 
 # Ensure PATH in shell rc
 case ":$PATH:" in
@@ -182,6 +241,20 @@ echo "============================================================"
 echo " Installation complete"
 echo "============================================================"
 echo "  api:   $UPSTREAM"
+echo "  Sol key:   $XDIR/upstream.key (GPT公益; default)"
+if [ -s "$XDIR/astra.key" ]; then
+  echo "  Astra key: $XDIR/astra.key (Astra-专属余额; --astra)"
+else
+  echo "  Astra key: not configured (optional; add XINGCHI_ASTRA_API_KEY or rerun interactively)"
+fi
+echo "  catalogs:  $CODEX_DIR/xingchi-models.json"
+echo "             $CODEX_DIR/xingchi-models-astra.json"
+if [ "${XINGCHI_SKIP_INTEGRATIONS:-}" = 1 ]; then
+  echo "  skills/MCP: skipped (XINGCHI_SKIP_INTEGRATIONS=1)"
+else
+  echo "  skills:    $SHARED_SKILLS (shared with local Codex/Claude installs)"
+  echo "  conflicts: $XDIR/skill-conflicts.json"
+fi
 echo
 echo "Start Codex with:"
 if command -v xingchi-codex >/dev/null 2>&1; then
@@ -189,7 +262,11 @@ if command -v xingchi-codex >/dev/null 2>&1; then
 else
   echo "  $BIN/xingchi-codex      (PATH updates in a new terminal)"
 fi
+echo "  xingchi-codex --astra      (Astra-专属余额, if astra.key is configured)"
+echo "  xingchi-codex -m gpt-6.1-sol"
+echo "  xingchi-codex --astra -m gpt-6-astra"
 echo 'Choose your model and reasoning level with /model in Codex.'
+echo 'The key group is selected at launch; /model never switches API keys.'
 echo "Check the setup with:"
 if command -v xingchi >/dev/null 2>&1; then
   echo "  xingchi"

@@ -1,32 +1,60 @@
 # xingchi-codex
 
 Point the **Codex CLI** at the Xingchi API and pick your model and reasoning
-level with `/model`. Setup uses one key and connects directly to Xingchi.
+level with `/model`. Setup accepts a required GPT公益/Sol key and an optional
+Astra-专属余额 key. Select the key group explicitly at launch.
 
 ```
-codex ── HTTPS (OpenAI Responses API) ──> api.xingchiapi.com/v1
+Codex ── HTTPS (OpenAI Responses API) ──> Xingchi
+          default: GPT公益/Sol key
+          --astra: Astra-专属余额 key
 ```
 
-Both installers configure Codex to use Xingchi's **Responses API** directly,
-with the coding-client headers used by the local setup. There is no bridge
-process, local proxy port, or second key.
+Both installers configure Codex to use Xingchi's **Responses API** with the
+coding-client headers used by the local setup. The launcher connects directly;
+it selects one key for the whole session and does not run a proxy.
+
+You may configure just the required GPT公益/Sol key, or configure both keys.
+The installer prompts for the optional Astra-专属余额 key after the Sol key;
+press Enter to skip it. Do not paste one group's key into the other group's
+prompt. The group is chosen when you start Codex, not by changing models in
+`/model`.
 
 ## Models and reasoning
 
-| Model ID | Selectable reasoning levels |
-| --- | --- |
-| `gpt-6.1-sol` | Low, Medium, High, Extra High, Max, Ultra |
-| `gpt-6-astra` | Low, Medium, High, Extra High, Max, Ultra |
-| `gpt-6-luna` | Low, Medium, High, Extra High, Max |
-| `gpt-6-terra` | Low, Medium, High, Extra High, Max, Ultra |
+The catalogs are separated by API-key group:
+
+- **GPT公益 / default:** `gpt-6.1-sol`
+- **Astra / `--astra`:**
+  `gpt-5.6-sol`, `gpt-6`, `gpt-5.6`, `gpt-5.6-terra`, `gpt-5.6-luna`,
+  `gpt-6.1-terra`, `gpt-6.1-sol`, `gpt-6-sol`, `gpt-6-luna`, `gpt-6-astra`,
+  `gpt-5.5`, `gpt-5.4`, `gpt-5.4-mini`, `gpt-5.3-codex-spark`,
+  `codex-auto-review`, `gpt-5.2`, `gpt-image-1`, `gpt-image-1.5`,
+  `gpt-image-2`, `gpt-image-2.5-flare`, `gpt-image-2.5-sunburst`,
+  `gpt-image-2.6-flare`, `gpt-image-2.6-sunburst`.
+
+The installer queries both configured keys separately and writes
+`xingchi-models.json` for GPT公益 and `xingchi-models-astra.json` for Astra.
+The Astra launcher selects the second catalog as well as the Astra key. Each
+catalog can also include additional IDs discovered from that same key.
+
+An ID returned by `/v1/models` is only a catalog listing; it does **not** prove
+the group has balance, an active route, or that the ID supports interactive
+Codex requests. Non-conversation image, embedding, and utility IDs are included
+because the group advertises them, but may reject a Codex text request.
+In the earlier session check, Astra requests returned an insufficient-balance
+error; the menu can expose the group's full list, but that account-side balance
+issue must be resolved separately before Astra requests will succeed.
+
+Known GPT-6 model entries have per-model reasoning presets; model IDs without
+known metadata are shown without a reasoning submenu.
 
 Ultra is a Codex preset. In the reference CLI, 0.170.0, selecting Ultra sends
 `reasoning.effort = "max"` to the API.
 
-Both installers use the same bundled catalog in `lib/models.json`, matching
-the local four-model setup. These four entries stay in `/model` even if
-Xingchi's `/v1/models` lists only Sol. Other GPT IDs returned for your key,
-such as `gpt-6.1-terra`, are added alongside them.
+The launcher chooses the key group for the whole session; it never silently
+routes individual models across keys. Use a model listed for the selected
+group.
 
 The menu and its reasoning choices are local configuration. **They do not
 grant account access.** If Xingchi returns `model_not_found` for Astra, Luna,
@@ -48,13 +76,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command "irm https://raw.githubus
 
 The installer:
 
-1. Asks for your Xingchi API key and stores it in `~/.xingchi/upstream.key`
-   (mode 600). It never writes the key into this repository.
+1. Asks for the required **GPT公益/Sol API key**, then offers an optional
+   **Astra-专属余额 API key** prompt. Press Enter at the optional prompt to
+   install with only the Sol key on a fresh setup. If `astra.key` already
+   exists, the installer reuses it; remove that file only if you intentionally
+   want to remove the saved Astra credential. The keys are stored separately as
+   `~/.xingchi/upstream.key` and `~/.xingchi/astra.key` (mode 600 on
+   macOS/Linux). Neither key is written into this repository.
 2. Installs or updates the Codex CLI (`npm install -g @openai/codex`) when it
    is missing or older than the supported minimum, 0.170.0.
-3. Checks your key and reads the list of models from `/v1/models`, then writes
-   the four-model catalog, reasoning presets, compaction compatibility setting,
-   feature defaults and launchers.
+3. Checks each configured key and reads its list of models from `/v1/models`,
+   then writes a separate catalog for each group, reasoning
+   presets, compaction compatibility setting, feature defaults and launchers.
 
 If the upstream rejects the key (`401`/`403`) the installer exits non-zero and
 tells you to get a new key, so a failed check never looks like a finished
@@ -63,8 +96,18 @@ install. Paste the key with or without surrounding spaces; it is trimmed.
 Non-interactive:
 
 ```sh
-XINGCHI_API_KEY=... sh install.sh --yes
+XINGCHI_API_KEY='<GPT公益/Sol key>' \\
+  XINGCHI_ASTRA_API_KEY='<optional Astra-专属余额 key>' \\
+  sh install.sh --yes
 ```
+
+Leave out `XINGCHI_ASTRA_API_KEY` to configure only GPT公益/Sol. On Windows,
+set `$env:XINGCHI_API_KEY` (and optionally `$env:XINGCHI_ASTRA_API_KEY`) before
+running `install.ps1 -Yes`. Avoid putting real keys in shell history, scripts,
+screenshots, or this repository; the interactive hidden prompt is preferred.
+To remove an Astra key that was saved previously, delete
+`~/.xingchi/astra.key` (Windows: `Remove-Item "$env:USERPROFILE\.xingchi\astra.key"`)
+and rerun the installer. This does not delete the Sol key.
 
 To install from this checkout using your saved key:
 
@@ -91,7 +134,8 @@ name = "OpenAI"
 base_url = "https://api.xingchiapi.com/v1"
 wire_api = "responses"
 requires_openai_auth = false
-experimental_bearer_token = "<your key>"
+env_key = "XINGCHI_API_KEY"
+supports_websockets = false
 http_headers = { "x-openai-actor-authorization" = "local-image-extension" }
 capabilities.remote_compaction = "unsupported"
 
@@ -108,32 +152,125 @@ saved feature choices are retained on reinstall. The installer also preserves
 your saved model (if still in the catalog) and reasoning level. It does not
 force one reasoning level for every model.
 
+The launcher configures one OpenAI provider and supplies the selected key via
+`XINGCHI_API_KEY`. The standard command uses the GPT公益/Sol key and its
+catalog. Adding `--astra` selects the Astra-专属余额 key and catalog; when no
+model is explicitly selected, it starts with `gpt-6-astra`. An explicit
+`-m`/`--model` or `-c model=...` is preserved. Both modes connect directly to
+Xingchi over HTTPS, without a local proxy.
+
+### Unified skills and MCP setup (local and project installs)
+
+Unless `XINGCHI_SKIP_INTEGRATIONS=1` is set, both installers also run the same
+local integration step. This is the same user-level setup whether you run the
+installer from this project checkout or use the local `xingchi-codex`
+installation: skills are unified in your home directory, not copied into this
+repository. It discovers every `SKILL.md` below:
+
+- `~/.agents/skills`
+- `~/.claude/skills`
+- `~/.codex/skills`
+
+`~/.agents/skills` is the shared Codex skill root. Existing files are never
+deleted, moved, or copied; skills found only in another supported root are
+exposed there with managed directory links (Windows uses junctions when
+symlink permissions are unavailable). The setup does not replace or clear the
+shared skills directory. Re-running the installer reuses managed links. When
+two sources declare the same skill name, one canonical copy remains active
+and the other remains in place but is disabled through a single managed
+`skills.config` block. The choices are recorded in
+`~/.xingchi/skill-conflicts.json`.
+
+The integration step preserves every existing `mcp_servers` entry and adds
+portable definitions for the current Codex MCP set when an entry is absent:
+
+- Rust Anything, OpenAI Developer Docs, Context7, GitHub, Exa, GitLab, Magic,
+  MongoDB, filesystem, Sequential Thinking, Playwright, PostgreSQL, Supabase,
+  Linear, Atlassian, Figma, Chrome DevTools, Firecrawl, Redis, Repomix,
+  shadcn, SQLite, Tavily and Time.
+
+Credential-dependent, OAuth-managed, or compatibility-sensitive entries stay
+in the config but are inactive until authenticated or explicitly enabled.
+This keeps one missing token, invalid local database path, or failed stdio
+handshake from making the whole MCP startup fail. Set a matching credential
+or opt in explicitly before launching Codex:
+
+| MCP | Credential or opt-in |
+| --- | --- |
+| GitHub | `GITHUB_PAT_TOKEN` |
+| Exa | `EXA_API_KEY` |
+| GitLab | `GITLAB_PERSONAL_ACCESS_TOKEN` |
+| Magic | `API_KEY` |
+| MongoDB | `MDB_MCP_CONNECTION_STRING` |
+| Firecrawl | `FIRECRAWL_API_KEY` |
+| PostgreSQL | `DATABASE_URL` or an existing connection string |
+| Supabase, Linear, Atlassian, Figma | Authenticate with the provider's Codex OAuth flow |
+| filesystem | `XINGCHI_ENABLE_MCP_FILESYSTEM=1` and an existing directory |
+| SQLite | `XINGCHI_ENABLE_MCP_SQLITE=1` |
+| Redis | `XINGCHI_ENABLE_MCP_REDIS=1` and a reachable Redis instance |
+| Tavily | Authenticate with the provider's Codex OAuth flow |
+
+The repository contains integration logic only, never private skill files,
+local workspace metadata, or credentials. API keys are read from environment
+variables or local files at install/runtime and are never written into this
+checkout.
+
+To skip all automatic skills/MCP integration changes for one installation:
+
+```sh
+XINGCHI_SKIP_INTEGRATIONS=1 sh install.sh
+```
+
+```powershell
+$env:XINGCHI_SKIP_INTEGRATIONS = '1'
+.\install.ps1
+Remove-Item Env:\XINGCHI_SKIP_INTEGRATIONS
+```
+
+This opt-out leaves existing skills and MCP configuration untouched; API-key
+and model setup still runs.
+
 Compaction uses ordinary Responses requests to summarize conversation history.
 The provider override above disables Codex's remote compaction v2 protocol,
 whose `compaction_trigger` input fails on Xingchi. This keeps compaction
 available for long sessions and `/compact`.
 
 On Windows, the default Codex directory is `%USERPROFILE%\.codex`, and the
-launchers are installed under `%LOCALAPPDATA%\xingchi\bin`.
+launchers are installed under `%LOCALAPPDATA%\xingchi\bin`. The unified skill
+root is `%USERPROFILE%\.agents\skills`, and conflict records are stored under
+`%USERPROFILE%\.xingchi\skill-conflicts.json`.
 
-`~/.xingchi/upstream.key` — your Xingchi API key, mode 600.
-`~/.local/bin/xingchi-codex` — reads that key at runtime, exports
-`OPENAI_BASE_URL` / `OPENAI_API_KEY`, and execs `codex`.
+`~/.xingchi/upstream.key` — your GPT公益/Sol key, mode 600.
+`~/.xingchi/astra.key` — optional Astra-专属余额 key, mode 600.
+`~/.local/bin/xingchi-codex` — reads the selected key at runtime and launches
+`codex` directly.
 `~/.local/bin/xingchi` — prints the current setup.
 
 ## Use
 
 ```sh
-xingchi-codex                 # interactive Codex TUI
-xingchi-codex exec "..."      # non-interactive
-xingchi                       # show API, model, key and codex status
-xingchi --doctor              # run codex doctor; reports model/provider status
-codex doctor                  # full health check
+xingchi-codex                            # GPT公益/Sol key (default)
+xingchi-codex --astra                    # Astra-专属余额 key; default model: gpt-6-astra
+xingchi-codex -m gpt-6.1-sol             # GPT公益/Sol, explicitly select a model
+xingchi-codex --astra -m gpt-6-astra     # Astra, explicitly select a model
+xingchi-codex exec "..."                 # non-interactive using GPT公益/Sol
+xingchi-codex --astra exec "..."         # non-interactive using Astra
+xingchi                                  # show API, model, key and Codex status
+xingchi --doctor                         # run codex doctor
+codex doctor                             # full health check
 ```
 
 `xingchi-codex` passes your arguments to `codex` and adds `--no-daemon` so
 each launch reads the installed catalog. Codex's shared background server can
 keep an older model list even after you quit and reopen the terminal UI.
+
+`--astra` must be the first argument after `xingchi-codex`. It selects
+`astra.key` and the Astra catalog for that run; without it, the launcher uses
+`upstream.key` and the GPT公益 catalog. Both keys are optional only in the
+sense that Astra may be omitted: a missing selected key stops launch without
+falling back to the other group. `/model` selects among the chosen group's
+catalog and changes reasoning effort where supported; it does not switch the
+API key/group. Use the exact model IDs shown for that group.
 
 Rerun the updated installer and restart `xingchi-codex`. Open `/model`,
 select a model, and choose a reasoning level. Max and Ultra appear under
@@ -149,27 +286,44 @@ The installers check for Codex CLI 0.170.0 or newer and update older versions.
 
 ## Security
 
-- Your Xingchi key is stored in `~/.xingchi/upstream.key` and the Codex
-  provider configuration. These files and their backups use mode 600 on
+- Your Xingchi keys are stored in `~/.xingchi/upstream.key` and optional
+  `~/.xingchi/astra.key`; the Codex config contains environment variable names,
+  never key values. These files and their backups use mode 600 on
   macOS/Linux. The key is never committed to this repository or passed on a
   command line.
+- The Windows installer stores keys beneath `%USERPROFILE%\.xingchi`; do not
+  share that directory or paste its files into diagnostics. It writes explicit
+  user-restricted ACLs for both key files (alongside the normal Windows system
+  and administrator access), and does not put key values in the generated
+  launcher or Codex config.
 - The launcher reads the key file at runtime; the repository contains no
   credentials.
-- Codex connects to the upstream directly over HTTPS.
+- Both launch modes connect directly over HTTPS. `xingchi-codex --astra`
+  selects the Astra key directly; no proxy is involved.
 
-## Adding other GPT model IDs
+## Adding other model IDs
 
-If your account can use a GPT model that Xingchi's `/v1/models` omits, add its
+If your account can use a model that Xingchi's `/v1/models` omits, add its
 exact ID to `~/.xingchi/models.txt` (`%USERPROFILE%\.xingchi\models.txt` on
 Windows, or under `XINGCHI_HOME` if set). Use one model ID per line, save as
-UTF-8, then rerun the installer and restart Codex. An ID with no known
-reasoning metadata appears without a reasoning submenu.
+UTF-8, prefix each entry with `sol:` or `astra:` (for example,
+`astra:gpt-6.2-astra`), then rerun the installer and restart Codex. IDs added
+this way are user-supplied, not verified by `/v1/models`. Entries without known
+reasoning metadata appear without a reasoning submenu.
 
-You can also try a specific model and reasoning setting from the terminal.
+Choose the key group first, then select a model available to that group. You
+can also try a specific model and reasoning setting from the terminal.
 
 ```powershell
-xingchi-codex -m gpt-6-astra -c 'model_reasoning_effort="high"'
+xingchi-codex --astra -m gpt-6-astra -c 'model_reasoning_effort="high"'
+xingchi-codex --astra -c 'model_reasoning_effort="high"'
 ```
+
+`--astra` is consumed by the Xingchi launcher and is never passed to Codex.
+It must appear immediately after `xingchi-codex`. Without it, the launcher
+uses `upstream.key`; with it, the launcher uses `astra.key`. If the selected
+key file is missing, launch stops with an error instead of silently falling
+back to the other key.
 
 Changing the reasoning level in `/model` saves it for the next launch. A
 command-line `-c` override applies to that invocation.
@@ -180,9 +334,9 @@ command-line `-c` override applies to that invocation.
 | --- | --- |
 | `No connected db` | Something points Codex at an old LiteLLM proxy. Remove any `127.0.0.1:4010` base URL and restart Codex. |
 | `No models are available` | Rerun the installer to rebuild the catalog, then restart Codex. |
-| `/model` shows only `gpt-6.1-sol` despite a four-model catalog | An existing shared background server still has the old list. Use the updated `xingchi-codex` launcher, or run `codex --no-daemon`. |
+| `/model` does not show newly discovered models | Rerun the installer to refresh both model lists, then restart `xingchi-codex` so the shared background server reloads the catalog. |
 | `client_not_allowed` | The upstream rejects scripts/SDKs/proxies. Use the Codex CLI directly, not curl or a proxy. |
-| `model_not_found` | Xingchi rejected that exact model ID for your account group. Check which ID Xingchi lists during install, or ask Xingchi to enable it. |
+| `model_not_found` | Xingchi rejected that exact model ID for the selected key group. Rerun the installer to refresh both `/v1/models` responses; catalog visibility does not grant access or imply every model accepts Codex text requests. |
 | `Upstream request failed` (`upstream_error`, HTTP 400) | Xingchi rejects the `custom_tool_call` items Codex writes for its experimental Code Mode `exec` tool. The generated catalog keeps that tool off; a session started before this fix still replays those items, so start a new `xingchi-codex` session instead of resuming the old one. |
 | `Error running remote compact task` | Rerun the updated installer, restart `xingchi-codex`, and resume the session. The provider must set `capabilities.remote_compaction = "unsupported"` so compaction uses ordinary Responses requests. |
 | `401` on install | The key is wrong or expired. Create a new one at <https://xingchiapi.com/keys>. |
@@ -216,7 +370,7 @@ url = "https://mcp.supabase.com/mcp"
 ```
 
 Replace the filesystem path with an existing directory you want the server
-to access. On Windows, use a path such as `C:/Users/yourname/Projects`.
+to access. On Windows, use a path such as `C:/your-projects-directory`.
 The sample `/path/to/your/projects` makes the server exit during startup.
 
 GitHub needs `GITHUB_PAT_TOKEN` exported in the terminal that launches
