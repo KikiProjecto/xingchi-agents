@@ -277,8 +277,6 @@ class LauncherTests(unittest.TestCase):
         for required in (
             "GPT公益/Sol", "Astra-专属余额", "xingchi-codex --astra",
             "xingchi-codex -m gpt-6.1-sol", "xingchi-codex --astra -m gpt-6-astra",
-            "~/.agents/skills", "%USERPROFILE%\\.agents\\skills",
-            "XINGCHI_SKIP_INTEGRATIONS=1", "skill-conflicts.json",
             "xingchi-models-astra.json",
         ):
             self.assertIn(required, readme)

@@ -193,15 +193,13 @@ gives divergent same-name variants deterministic `--variant-<hash>` names, and
 writes a review inventory to `skills/LIST.md`. The sync stops rather than
 overwriting a non-empty existing `skills/` directory. The generated bundle is
 intended to be reviewed, staged, committed, and published with this project;
-it is separate from the home-level unified skill links used by an installed
-`xingchi-codex` command. Runtime state, dependencies, credentials, local
-repository metadata, and common secret-bearing files are excluded. Textual
+see `skills/LIST.md` for the inventory. Runtime state, dependencies,
+credentials, local repository metadata, and common secret-bearing files are
+excluded. Textual
 absolute home-directory paths are redacted as `<HOME>`. Third-party license
 and redistribution terms still require human review before publishing.
 
-The bundle is not automatically installed into home-level skill roots by the
-installers. Installers continue to manage the user's unified home skill root
-and MCP configuration, while this directory is the auditable public snapshot.
+The installers do not automatically install this bundle.
 Run the utility again only after moving or removing the current project-local
 copy.
 
@@ -260,9 +258,7 @@ whose `compaction_trigger` input fails on Xingchi. This keeps compaction
 available for long sessions and `/compact`.
 
 On Windows, the default Codex directory is `%USERPROFILE%\.codex`, and the
-launchers are installed under `%LOCALAPPDATA%\xingchi\bin`. The unified skill
-root is `%USERPROFILE%\.agents\skills`, and conflict records are stored under
-`%USERPROFILE%\.xingchi\skill-conflicts.json`.
+launchers are installed under `%LOCALAPPDATA%\xingchi\bin`.
 
 `~/.xingchi/upstream.key` — your GPT公益/Sol key, mode 600.
 `~/.xingchi/astra.key` — optional Astra-专属余额 key, mode 600.
