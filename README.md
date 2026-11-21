@@ -178,28 +178,6 @@ model is explicitly selected, it starts with `gpt-6-astra`. An explicit
 `-m`/`--model` or `-c model=...` is preserved. Both modes connect directly to
 Xingchi over HTTPS, without a local proxy.
 
-### Unified skills and MCP setup (local and project installs)
-
-Unless `XINGCHI_SKIP_INTEGRATIONS=1` is set, both installers also run the same
-local integration step. This is the same user-level setup whether you run the
-installer from this project checkout or use the local `xingchi-codex`
-installation: skills are unified in your home directory, not copied into this
-repository. It discovers every `SKILL.md` below:
-
-- `~/.agents/skills`
-- `~/.claude/skills`
-- `~/.codex/skills`
-
-`~/.agents/skills` is the shared Codex skill root. Existing files are never
-deleted, moved, or copied; skills found only in another supported root are
-exposed there with managed directory links (Windows uses junctions when
-symlink permissions are unavailable). The setup does not replace or clear the
-shared skills directory. Re-running the installer reuses managed links. When
-two sources declare the same skill name, one canonical copy remains active
-and the other remains in place but is disabled through a single managed
-`skills.config` block. The choices are recorded in
-`~/.xingchi/skill-conflicts.json`.
-
 ### Project-local skill collection
 
 To make a reviewable project-local copy of skills from all three user roots,
