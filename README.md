@@ -26,7 +26,7 @@ The model catalogs are separate because each API key is tied to its own group.
 This table compares the model IDs currently included in this project's group
 catalogs.
 
-| GPT公益 (default: `xingchi-codex`) | Astra-专属余额 (`xingchi-codex --astra`) |
+| GPT公益 (`xingchi-codex`) | Astra-专属余额 (`xingchi-codex --astra`) |
 | --- | --- |
 | `gpt-6.1-sol` | `gpt-5.6-sol` |
 |  | `gpt-6` |
