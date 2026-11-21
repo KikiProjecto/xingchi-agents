@@ -42,10 +42,18 @@ After installation:
   xingchi-codex -m gpt-6.1-sol  choose a specific model
   xingchi-codex --astra -m gpt-6-astra
   xingchi-codex /inherit     choose saved history and continue in a fresh chat
-  xingchi-codex --continue     fork saved history after a session request limit
+  xingchi-codex --continue     fork the latest saved conversation
   /model                       choose model and reasoning effort in Codex
   /inherit                     open the saved-session picker inside the chat
 Type / to select /inherit from the command list.
+Continue saved work with /inherit (recommended for session limits):
+  1. Launch xingchi-codex in the same project directory.
+  2. Type /inherit and press Enter to open the session list.
+  3. Use Up/Down or Page Up/Down; type a title or ID to filter. Esc cancels.
+  4. Press Enter on a session; a fresh chat automatically reads saved history and continues the work.
+Why /inherit over --continue: a fresh conversation reads saved history on demand.
+--continue forks the saved conversation; copied history can still hit a turn limit.
+If the old chat is closed: xingchi-codex /inherit (Astra: xingchi-codex --astra /inherit).
 After updating, exit any running Codex and relaunch xingchi-codex to load the update.
 At the optional Astra prompt, press Enter to configure GPT公益/Sol only.
 An existing $XDIR/astra.key is reused; remove that file to stop storing the Astra key.
@@ -275,9 +283,17 @@ echo "  xingchi-codex -m gpt-6.1-sol"
 echo "  xingchi-codex --astra -m gpt-6-astra"
 echo 'Choose your model and reasoning level with /model in Codex.'
 echo 'Type / to select /inherit, then Enter to choose a saved session and continue in a fresh chat.'
+echo 'Continue saved work with /inherit (recommended for session limits):'
+echo '  1. Launch xingchi-codex in the same project directory.'
+echo '  2. Type /inherit and press Enter to open the session list.'
+echo '  3. Use Up/Down or Page Up/Down; type a title or ID to filter. Esc cancels.'
+echo '  4. Press Enter on a session; a fresh chat automatically reads saved history and continues the work.'
+echo 'Why /inherit over --continue: a fresh conversation reads saved history on demand.'
+echo '--continue forks the saved conversation; copied history can still hit a turn limit.'
+echo 'If the old chat is closed: xingchi-codex /inherit (Astra: xingchi-codex --astra /inherit).'
 echo 'After updating, exit any running Codex and relaunch xingchi-codex to load the update.'
 echo 'The key group is selected at launch; /model never switches API keys.'
-echo 'After a session request limit: exit, then xingchi-codex --continue (or --astra --continue).'
+echo 'After session_request_limit_exceeded or session_turn_limit_exceeded: use /inherit.'
 echo "Check the setup with:"
 if command -v xingchi >/dev/null 2>&1; then
   echo "  xingchi"

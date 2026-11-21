@@ -278,6 +278,8 @@ xingchi-codex                            # GPT公益/Sol key (default)
 xingchi-codex --astra                    # Astra-专属余额 key; default model: gpt-6-astra
 xingchi-codex -m gpt-6.1-sol             # GPT公益/Sol, explicitly select a model
 xingchi-codex --astra -m gpt-6-astra     # Astra, explicitly select a model
+xingchi-codex /inherit                  # choose saved work and continue in a fresh chat
+xingchi-codex --astra /inherit          # use the Astra key for the fresh chat
 xingchi-codex exec "..."                 # non-interactive using GPT公益/Sol
 xingchi-codex --astra exec "..."         # non-interactive using Astra
 xingchi                                  # show API, model, key and Codex status
@@ -302,6 +304,45 @@ select a model, and choose a reasoning level. Max and Ultra appear under
 **More reasoning** where available. Reinstalling keeps your saved reasoning
 level and any saved model that is still in the catalog.
 The installers check for Codex CLI 0.170.0 or newer and update older versions.
+
+### Continue saved work with `/inherit` (recommended for session limits)
+
+Use `/inherit` when a conversation reaches `session_turn_limit_exceeded` or
+`session_request_limit_exceeded`, especially when `--continue` immediately
+hits the same error again.
+
+1. Start `xingchi-codex` in the same project directory as the saved session.
+   Use `xingchi-codex --astra` if that work needs the Astra key.
+2. In the chat, type `/inherit` and press Enter. You can also type `/` and
+   press Enter on the selected `/inherit` entry. The picker opens locally,
+   including in a capped chat.
+3. Use ↑/↓ or Page Up/Down to choose a session. Type part of its title or ID
+   to filter the list. Press Esc to cancel and return to the current chat.
+4. Press Enter on the session you want. The launcher starts a fresh chat and
+   automatically prompts it to read the selected history and continue unfinished
+   work. You do not need to paste a continuation prompt yourself.
+
+If the old chat is already closed, run `xingchi-codex /inherit` from that
+project directory to open the picker directly. For Astra, run
+`xingchi-codex --astra /inherit`. After installing an update, exit any running
+Codex and relaunch `xingchi-codex` once to load the new command.
+
+**Why prefer `/inherit` over `--continue` for a capped conversation?**
+
+| | `/inherit` | `xingchi-codex --continue` |
+| --- | --- | --- |
+| New conversation | Starts with a continuation prompt referencing the selected session; old turns are available through a scoped history tool. | Runs native `fork --last`, copying the latest saved conversation into a fork with a new session ID. |
+| Choose the source | Browse and filter sessions from the same project directory, including archived sessions. | Uses the latest session; choose another explicitly with `xingchi-codex fork <SESSION_ID>`. |
+| Context at launch | Reads relevant saved turns and tool results on demand. | Begins with the fork's saved context, including any existing summaries. |
+| Recover from a turn limit | Starts without replaying the capped conversation as previous messages. | The copied conversation can still trigger the provider's turn limit, even with a new session ID. |
+
+`/inherit` is the recommended recovery path because it separates the new
+conversation from the old message sequence while keeping saved history
+accessible. `--continue` remains useful when you want to branch directly from
+the latest saved context and that context is still accepted by the provider.
+Neither command increases your API balance, account quota, or context window,
+or restores unsaved/deleted history. See the [history commands and limitations](#start-a-fresh-chat-with-saved-context-inherit)
+for explicit session selectors and manual history reads.
 
 ## Requirements
 
@@ -392,31 +433,25 @@ Listings and manual reads do not send a model request. History the new chat
 reads as tool output can be sent to the model. Only persisted history that
 Codex still exposes can be recovered; unsaved or deleted turns cannot.
 
-### Continue after the 100-request session limit
+### Session request or turn limits
 
-If Xingchi returns `session_request_limit_exceeded`, exit the capped session
-and run this from the same project directory:
+If Xingchi returns `session_request_limit_exceeded` or
+`session_turn_limit_exceeded`, type `/inherit` inside the current chat and
+choose the saved session. The picker does not send a model request. If you
+have already exited, run this from the same project directory:
 
 ```sh
-xingchi-codex --continue
+xingchi-codex /inherit
 ```
 
-For the dedicated Astra key, use `xingchi-codex --astra --continue`.
-This shortcut runs Codex's native `fork --last`: it creates a new session ID
-from the latest session's saved conversation, rather than resuming the capped
-ID or opening an empty conversation. To choose the source explicitly, run
-`xingchi-codex fork <SESSION_ID>` (add `--astra` before `fork` for that key).
-
-The source session stays on disk. Forking preserves the conversation Codex
-has saved, including its existing summaries; it does not undo earlier
-compaction or guarantee that an unlimited history fits in the active context.
-The shortcut requires exiting and relaunching; it does not automatically
-restart a running TUI when the error appears.
-If the fork immediately hits `session_turn_limit_exceeded`, use `/inherit`
-instead of forking again.
+For Astra, use `xingchi-codex --astra /inherit`. Follow the
+[navigation steps and command comparison](#continue-saved-work-with-inherit-recommended-for-session-limits)
+above. If `--continue` keeps hitting the same limit, switch to `/inherit`
+instead of repeatedly forking the capped conversation.
 
 | Symptom | Cause / fix |
 | --- | --- |
+| `session_turn_limit_exceeded` or `session_request_limit_exceeded` | Use `/inherit`, select the saved session, and press Enter to continue in a fresh chat. From the shell, run `xingchi-codex /inherit` in the same directory. |
 | `No connected db` | Something points Codex at an old LiteLLM proxy. Remove any `127.0.0.1:4010` base URL and restart Codex. |
 | `No models are available` | Rerun the installer to rebuild the catalog, then restart Codex. |
 | `/model` does not show newly discovered models | Rerun the installer to refresh both model lists, then restart `xingchi-codex` so the shared background server reloads the catalog. |
