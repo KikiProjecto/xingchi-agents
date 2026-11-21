@@ -137,6 +137,40 @@ class ConfigTests(unittest.TestCase):
             with self.subTest(version=version):
                 self.assertFalse(config.compatible_cli(version))
 
+    def test_setup_status_handles_legacy_windows_output_encoding(self):
+        code = (
+            "import sys; "
+            f"sys.path.insert(0, {str(ROOT / 'lib')!r}); "
+            "import config; "
+            "config.discover_models = lambda: "
+            "{'sol': ['gpt-6.1-sol'], 'astra': []}; "
+            "sys.argv = ['config.py', 'codex']; config.main()"
+        )
+        result = subprocess.run(
+            [sys.executable, "-c", code],
+            env={
+                **os.environ,
+                "HOME": str(self.home),
+                "USERPROFILE": str(self.home),
+                "CODEX_HOME": str(self.home / ".codex"),
+                "XINGCHI_HOME": str(self.home / ".xingchi"),
+                "XINGCHI_API_KEY": "test-key",
+                "XINGCHI_ASTRA_API_KEY": "",
+                "PYTHONIOENCODING": "cp1252:strict",
+                "PYTHONUTF8": "0",
+            },
+            capture_output=True,
+            text=True,
+            encoding="cp1252",
+            timeout=15,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("reasoning: choose per model", result.stdout)
+        settings = tomllib.loads(
+            (self.home / ".codex/config.toml").read_text(encoding="utf-8")
+        )
+        self.assertEqual(settings["model"], "gpt-6.1-sol")
+
     def test_cli_version_check_does_not_require_key(self):
         for version, expected in (("codex-cli 0.170.0", 0), ("codex-cli 0.169.0", 1)):
             result = subprocess.run(

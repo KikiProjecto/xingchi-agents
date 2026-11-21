@@ -131,6 +131,46 @@ class InstallerSourceTests(unittest.TestCase):
         self.assertIn("%XINGCHI_RUNNER%", _installer_code())
 
 
+@unittest.skipUnless(POWERSHELL, "PowerShell is not installed")
+class PowerShellModuleTests(unittest.TestCase):
+    def test_installer_prefers_running_hosts_modules(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            module_root = home / "foreign-modules"
+            module = module_root / "Microsoft.PowerShell.Security"
+            module.mkdir(parents=True)
+            (module / "Microsoft.PowerShell.Security.psd1").write_text(
+                "@{ ModuleVersion = '99.0'; PowerShellVersion = '99.0'; "
+                "RootModule = 'ForeignSecurity.psm1' }\n",
+                encoding="utf-8",
+            )
+            (module / "ForeignSecurity.psm1").write_text(
+                "throw 'An incompatible security module was loaded'\n",
+                encoding="utf-8",
+            )
+            result = subprocess.run(
+                [POWERSHELL, "-NoLogo", "-NoProfile", "-Command",
+                 "$ErrorActionPreference='Stop'; "
+                 "Remove-Module Microsoft.PowerShell.Security -ErrorAction SilentlyContinue; "
+                 "$env:PSModulePath=$env:XINGCHI_TEST_MODULE_ROOT+"
+                 "[IO.Path]::PathSeparator+[IO.Path]::Combine($PSHOME,'Modules'); "
+                 ". $env:XINGCHI_TEST_INSTALLER -Help; "
+                 "Import-Module Microsoft.PowerShell.Security; "
+                 "$module=Get-Module Microsoft.PowerShell.Security; "
+                 "if (-not $module.ModuleBase.StartsWith($PSHOME)) { "
+                 "throw 'Security module came from another PowerShell installation' }; "
+                 "Write-Output 'HOST_MODULE_OK'"],
+                env={**os.environ, "USERPROFILE": str(home),
+                     "LOCALAPPDATA": str(home),
+                     "XINGCHI_TEST_MODULE_ROOT": str(module_root),
+                     "XINGCHI_TEST_INSTALLER": str(ROOT / "install.ps1")},
+                capture_output=True, text=True, encoding="utf-8",
+                errors="replace", timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn("HOST_MODULE_OK", result.stdout)
+
+
 @unittest.skipUnless(os.name == "nt", "the Windows installer only runs on Windows")
 @unittest.skipUnless(POWERSHELL, "PowerShell is not installed")
 class WindowsInstallTests(unittest.TestCase):
@@ -271,14 +311,17 @@ class WindowsInstallTests(unittest.TestCase):
 
         launcher = (self.home / "bin" / "xingchi-codex.cmd").read_text(encoding="utf-8")
         status = (self.home / "bin" / "xingchi.cmd").read_text(encoding="utf-8")
+        runner = (self.home / "bin" / "xingchi-codex-runner.py").read_text(encoding="utf-8")
 
         self.assertIn('set "XINGCHI_UPSTREAM=%s"' % self.base_url, launcher)
-        self.assertIn("upstream.key", launcher)
+        self.assertIn("upstream.key", runner)
+        self.assertIn("astra.key", runner)
         self.assertIn("XINGCHI_RUNNER", launcher)
         self.assertIn("xingchi-codex-runner.py", launcher)
         self.assertIn(self.base_url, status)
 
-        for name, text in (("xingchi-codex.cmd", launcher), ("xingchi.cmd", status)):
+        for name, text in (("xingchi-codex.cmd", launcher), ("xingchi.cmd", status),
+                           ("xingchi-codex-runner.py", runner)):
             self.assertNotIn(KEY, text, "the API key leaked into %s" % name)
             self.assertNotIn(ASTRA_KEY, text, "the Astra key leaked into %s" % name)
 
@@ -327,6 +370,47 @@ class WindowsInstallTests(unittest.TestCase):
         self.assertEqual(settings["model"], "gpt-6.1-terra")
         self.assertEqual(settings["model_reasoning_effort"], "ultra")
         self.assertEqual(settings["model_providers"]["OpenAI"]["capabilities"]["remote_compaction"], "unsupported")
+
+    def test_incompatible_inherited_security_module_does_not_break_key_acls(self):
+        # Reproduce pwsh -> Python -> powershell.exe with an incompatible
+        # Microsoft.PowerShell.Security ahead of the host's bundled modules.
+        module_root = self.home / "foreign-modules"
+        module = module_root / "Microsoft.PowerShell.Security"
+        module.mkdir(parents=True)
+        (module / "Microsoft.PowerShell.Security.psd1").write_text(
+            "@{ ModuleVersion = '99.0'; PowerShellVersion = '99.0'; "
+            "RootModule = 'ForeignSecurity.psm1'; "
+            "FunctionsToExport = @('Set-Acl', 'Get-Acl') }\n",
+            encoding="utf-8",
+        )
+        (module / "ForeignSecurity.psm1").write_text(
+            "throw 'An incompatible security module was loaded'\n",
+            encoding="utf-8",
+        )
+        self.env["PSModulePath"] = str(module_root) + os.pathsep + self.env.get("PSModulePath", "")
+        self.install()
+
+        # Read the actual ACLs after setup; protection must never be skipped
+        # merely to make installation succeed.
+        result = subprocess.run(
+            [POWERSHELL, "-NoProfile", "-Command",
+             "$ErrorActionPreference='Stop'; "
+             "Import-Module ([IO.Path]::Combine($PSHOME, 'Modules', "
+             "'Microsoft.PowerShell.Security', 'Microsoft.PowerShell.Security.psd1')); "
+             "$paths=@('upstream.key','astra.key'); foreach ($name in $paths) { "
+             "$acl=Get-Acl -LiteralPath ([IO.Path]::Combine($env:XINGCHI_HOME,$name)); "
+             "if (-not $acl.AreAccessRulesProtected) { throw 'ACL inheritance enabled' }; "
+             "$allowed=@([Security.Principal.WindowsIdentity]::GetCurrent().User.Value, "
+             "'S-1-5-18', 'S-1-5-32-544'); "
+             "foreach ($rule in $acl.Access) { "
+             "$sid=$rule.IdentityReference.Translate([Security.Principal.SecurityIdentifier]).Value; "
+             "if ($sid -notin $allowed) { throw 'Unexpected ACL principal' } "
+             "}; Write-Output $name }"],
+            env=self.env, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=30,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["upstream.key", "astra.key"])
 
 
 if __name__ == "__main__":

@@ -18,6 +18,12 @@ param(
 )
 $ErrorActionPreference = 'Stop'
 
+# A Python/cmd child of PowerShell 7 inherits PS7 module paths even when it
+# starts Windows PowerShell 5.1. Prefer this host's bundled modules so Set-Acl
+# and other shared commands cannot autoload an incompatible PS7 module.
+$HostModules = [IO.Path]::Combine($PSHOME, 'Modules')
+$env:PSModulePath = $HostModules + [IO.Path]::PathSeparator + $env:PSModulePath
+
 # Windows PowerShell 5.1 negotiates SSL3/TLS1.0 by default on older builds, which
 # fails against both codeload.github.com and the Xingchi API.
 try {

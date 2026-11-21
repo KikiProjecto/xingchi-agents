@@ -298,6 +298,11 @@ def configure_codex(discovered=(), astra_discovered=()):
 
 
 def main():
+    # Redirected Windows output can use a legacy code page. Status messages
+    # must not abort setup when a group label or user path is unrepresentable.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="backslashreplace")
     if len(sys.argv) == 3 and sys.argv[1] == "check-cli":
         sys.exit(0 if compatible_cli(sys.argv[2]) else 1)
     if len(sys.argv) != 2 or sys.argv[1] != "codex":
