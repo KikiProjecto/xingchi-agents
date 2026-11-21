@@ -120,6 +120,10 @@ class WindowsChild:
                                                 c.sizeof(w.HANDLE), None, None))
             startup = STARTUPINFOEX()
             startup.startup.cb = c.sizeof(startup)
+            # Explicit null standard handles make ConPTY supply its console
+            # streams. Without STARTF_USESTDHANDLES, CreateProcess can copy a
+            # parent's redirected pipes even when handle inheritance is off.
+            startup.startup.dwFlags = 0x100  # STARTF_USESTDHANDLES
             startup.attributes = c.cast(attributes, c.c_void_p)
             process = PROCESSINFO()
             environment = c.create_unicode_buffer("\0".join(
