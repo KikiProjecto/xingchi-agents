@@ -130,6 +130,12 @@ class InstallerSourceTests(unittest.TestCase):
         self.assertIn("xingchi-codex-runner.py", _installer_code())
         self.assertIn("%XINGCHI_RUNNER%", _installer_code())
 
+    def test_installer_refreshes_every_inherit_helper(self):
+        code = _installer_code()
+        for name in ("xingchi_history.py", "xingchi_tui.py", "xingchi_conpty.py"):
+            self.assertIn(f"Copy-Item (Join-Path $SelfDir 'bin\\{name}') "
+                          f"(Join-Path $Bin '{name}') -Force", code)
+
 
 @unittest.skipUnless(POWERSHELL, "PowerShell is not installed")
 class PowerShellModuleTests(unittest.TestCase):
@@ -307,11 +313,19 @@ class WindowsInstallTests(unittest.TestCase):
         )
 
     def test_launchers_do_not_contain_the_key(self):
+        target = self.home / "bin"
+        target.mkdir()
+        payloads = ("xingchi-codex-runner.py", "xingchi_history.py", "xingchi_tui.py", "xingchi_conpty.py")
+        for name in payloads:
+            (target / name).write_text("# stale installation\n")
         self.install()
 
         launcher = (self.home / "bin" / "xingchi-codex.cmd").read_text(encoding="utf-8")
         status = (self.home / "bin" / "xingchi.cmd").read_text(encoding="utf-8")
         runner = (self.home / "bin" / "xingchi-codex-runner.py").read_text(encoding="utf-8")
+        for name in payloads:
+            self.assertEqual((target / name).read_bytes(), (ROOT / "bin" / name).read_bytes(),
+                             f"The installer left an outdated {name}")
 
         self.assertIn('set "XINGCHI_UPSTREAM=%s"' % self.base_url, launcher)
         self.assertIn("upstream.key", runner)

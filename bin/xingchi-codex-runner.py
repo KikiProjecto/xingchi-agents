@@ -11,6 +11,9 @@ import subprocess
 import sys
 import tomllib
 
+from xingchi_history import inherited_launch_args, inherit_command, local_history, read_thread, serve_history
+from xingchi_tui import interactive_options, launch_directory, run_tui
+
 
 DEFAULT_UPSTREAM = "https://api.xingchiapi.com/v1"
 
@@ -99,6 +102,19 @@ def run_codex(args: list[str]) -> int:
     use_astra = bool(args and args[0] == "--astra")
     if use_astra:
         args = args[1:]
+    if args and args[0] in {"/inherit", "--inherit", "--inherit-history", "--serve-inherited-history"}:
+        def app_server():
+            return codex_command(["app-server", "--listen", "stdio://"])
+
+        if args[0] == "--serve-inherited-history":
+            if len(args) != 2:
+                raise ValueError("expected one saved session ID")
+            serve_history(args[1], app_server)
+            return 0
+        fresh_args = inherit_command(args, app_server, Path(__file__).resolve())
+        if fresh_args is None:
+            return 0
+        args = fresh_args
     if args and args[0] == "--continue":
         # Fork through Codex itself: it copies saved conversation history and
         # allocates a new thread/session ID rather than resuming the capped ID.
@@ -125,6 +141,20 @@ def run_codex(args: list[str]) -> int:
             and not saved_model_is_valid_for_group(group)):
         initial_model = "gpt-6-astra" if use_astra else "gpt-6.1-sol"
     command = codex_command(args, model=initial_model, group=group)
+    options = interactive_options(args)
+    if options is not None and sys.stdin.isatty() and sys.stdout.isatty():
+        cwd = launch_directory(args)
+
+        def history_request():
+            return local_history(codex_command(["app-server", "--listen", "stdio://"]), env=child_env)
+
+        def fresh_command(id_: str, directory: Path) -> list[str]:
+            with history_request() as request:
+                read_thread(request, id_, directory)
+            fresh_args = inherited_launch_args(id_, directory, Path(__file__).resolve())
+            return codex_command([*options, *fresh_args], model=initial_model, group=group)
+
+        return run_tui(command, child_env, cwd, history_request, fresh_command)
     if os.name != "nt":
         os.execvpe(command[0], command, child_env)
     return subprocess.call(command, env=child_env)

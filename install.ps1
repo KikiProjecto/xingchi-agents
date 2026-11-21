@@ -61,6 +61,9 @@ if ($Help) {
     Write-Host "Unified skills root: $SharedSkills (shared with local Codex/Claude skills)."
     Write-Host "Commands: xingchi-codex | xingchi-codex --astra | xingchi-codex -m gpt-6.1-sol | xingchi-codex --astra -m gpt-6-astra"
     Write-Host 'Inside Codex, use /model to select a model and its available reasoning effort.'
+    Write-Host 'Inside xingchi-codex, /inherit opens a session picker and continues in a fresh chat.'
+    Write-Host 'Type / to select /inherit from the command list.'
+    Write-Host 'After updating, exit any running Codex and relaunch xingchi-codex to load the update.'
     Write-Host 'After a session request limit, exit and run xingchi-codex --continue to fork saved history.'
     return
 }
@@ -225,6 +228,9 @@ $env:XINGCHI_ASTRA_API_KEY = $null
 
 $runnerPath = Join-Path $Bin 'xingchi-codex-runner.py'
 Copy-Item (Join-Path $SelfDir 'bin\xingchi-codex-runner.py') $runnerPath -Force
+Copy-Item (Join-Path $SelfDir 'bin\xingchi_history.py') (Join-Path $Bin 'xingchi_history.py') -Force
+Copy-Item (Join-Path $SelfDir 'bin\xingchi_tui.py') (Join-Path $Bin 'xingchi_tui.py') -Force
+Copy-Item (Join-Path $SelfDir 'bin\xingchi_conpty.py') (Join-Path $Bin 'xingchi_conpty.py') -Force
 
 # Single-quoted here-strings: nothing here is expanded by PowerShell. Values are
 # filled in below with literal .Replace() calls, and no API key is embedded.
@@ -312,6 +318,8 @@ Write-Host '  xingchi-codex --astra      (Astra-专属余额, if astra.key is co
 Write-Host '  xingchi-codex -m gpt-6.1-sol'
 Write-Host '  xingchi-codex --astra -m gpt-6-astra'
 Write-Host 'Choose your model and reasoning level with /model in Codex.'
+Write-Host 'Type / to select /inherit, then Enter to choose a saved session and continue in a fresh chat.'
+Write-Host 'After updating, exit any running Codex and relaunch xingchi-codex to load the update.'
 Write-Host 'The key group is selected at launch; /model never switches API keys.'
 Write-Host 'After a session request limit: exit, then xingchi-codex --continue (or --astra --continue).'
 Write-Host 'Check the setup with: xingchi'

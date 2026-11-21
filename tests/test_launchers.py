@@ -269,7 +269,8 @@ class LauncherTests(unittest.TestCase):
     def test_repo_is_codex_only(self):
         self.assertEqual(sorted(p.name for p in (ROOT / "bin").iterdir()
                                 if p.name != "__pycache__"),
-                         ["xingchi", "xingchi-codex", "xingchi-codex-runner.py"])
+                         ["xingchi", "xingchi-codex", "xingchi-codex-runner.py", "xingchi_conpty.py",
+                          "xingchi_history.py", "xingchi_tui.py"])
         self.assertFalse((ROOT / "share").exists())
 
     def test_installers_match_direct_upstream(self):
@@ -294,6 +295,8 @@ class LauncherTests(unittest.TestCase):
                 "upstream.key", "astra.key", "XINGCHI_API_KEY",
                 "XINGCHI_ASTRA_API_KEY", "xingchi-codex --astra",
                 "xingchi-codex --continue",
+                "Type / to select /inherit",
+                "exit any running Codex and relaunch xingchi-codex",
                 "gpt-6-astra", "xingchi-models.json",
                 "xingchi-models-astra.json", "XINGCHI_SKIP_INTEGRATIONS",
                 skill_path,
@@ -326,6 +329,11 @@ class LauncherTests(unittest.TestCase):
             fakepath.mkdir()
             (fakepath / "codex").write_text("#!/bin/sh\necho 'codex-cli 0.170.0'\n")
             (fakepath / "codex").chmod(0o755)
+            payloads = ("xingchi-codex-runner.py", "xingchi_history.py", "xingchi_tui.py", "xingchi_conpty.py")
+            target = home / "bin"
+            target.mkdir()
+            for name in payloads:
+                (target / name).write_text("# stale installation\n")
 
             result = subprocess.run(
                 ["sh", str(ROOT / "install.sh"), "--yes"],
@@ -369,7 +377,9 @@ class LauncherTests(unittest.TestCase):
                 "api_key_model_discovery": True, "image_generation": True, "goals": True,
             })
             self.assertIn("xingchi-codex-runner.py", launcher.read_text())
-            self.assertTrue((home / "bin/xingchi-codex-runner.py").exists())
+            for name in payloads:
+                self.assertEqual((target / name).read_bytes(), (ROOT / "bin" / name).read_bytes(),
+                                 f"The installer left an outdated {name}")
 
     def test_installer_upgrades_old_cli_and_preserves_custom_home_selection(self):
         with tempfile.TemporaryDirectory() as directory:

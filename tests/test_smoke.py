@@ -158,6 +158,18 @@ class _Handler(BaseHTTPRequestHandler):
                 "id": "msg_smoke", "type": "message", "role": "assistant", "phase": "final_answer",
                 "content": [{"type": "output_text", "text": "Smoke summary." if compacting else "Smoke reply."}],
             }
+            history_namespace = "mcp__xingchi_inherit"
+            history_tool = "read_saved_history"
+            namespaced = any(tool.get("name") == history_namespace for tool in body.get("tools", []))
+            qualified = f"{history_namespace}__{history_tool}"
+            flat = any(tool.get("name") == qualified for tool in body.get("tools", []))
+            if getattr(self.server, "call_inherit_tool", False) and (namespaced or flat):
+                self.server.call_inherit_tool = False
+                message = {"id": "fc_smoke", "type": "function_call", "call_id": "call_smoke",
+                           "name": history_tool if namespaced else qualified,
+                           "arguments": "{}", "status": "completed"}
+                if namespaced:
+                    message["namespace"] = history_namespace
             # A large reported usage makes the next turn need automatic compaction.
             input_tokens = 100 if compacting else 60000
             events = [
@@ -413,6 +425,236 @@ class SmokeTests(unittest.TestCase):
         for path, content in originals.items():
             self.assertEqual(path.read_bytes(), content, "Fork modified the source session")
 
+    def test_inherit_reads_saved_history_and_starts_a_fresh_tui_session(self):
+        import fcntl
+        import pty
+        import termios
+
+        self.configure()
+        self.server.complete_responses = True
+        installed = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--yes"],
+            env={**self.env, "XINGCHI_SKIP_INTEGRATIONS": "1"},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(installed.returncode, 0, installed.stderr + installed.stdout)
+        launcher = [str(self.home / ".local/bin/xingchi-codex")]
+        with (self.home / ".codex/config.toml").open("a", encoding="utf-8") as config:
+            config.write('\n[projects.' + json.dumps(str(self.home)) + ']\ntrust_level = "trusted"\n')
+
+        def run(*args, cwd=self.home):
+            return subprocess.run([*launcher, *args], env=self.env, cwd=cwd,
+                                  capture_output=True, text=True, timeout=30)
+
+        first = run("exec", "--skip-git-repo-check", "--json", "Remember SOURCE_MARKER_997.")
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        events = [json.loads(line) for line in first.stdout.splitlines() if line.startswith("{")]
+        parent = next(e["thread_id"] for e in events if e.get("type") == "thread.started")
+        self.server.requests.clear()
+        forked = run("exec", "fork", "--skip-git-repo-check", "--json", parent, "Remember LATEST_MARKER_998.")
+        self.assertEqual(forked.returncode, 0, forked.stderr + forked.stdout)
+        events = [json.loads(line) for line in forked.stdout.splitlines() if line.startswith("{")]
+        source = next(e["thread_id"] for e in events if e.get("type") == "thread.started")
+        self.assertNotEqual(source, parent)
+        source_session = next(r["headers"]["session-id"] for r in self.server.requests if r["method"] == "POST")
+        self.server.requests.clear()
+        self.server.limited_session = source_session
+
+        listed = run("/inherit", "--list")
+        self.assertEqual(listed.returncode, 0, listed.stderr)
+        self.assertIn(source, listed.stdout)
+        history = run("--inherit-history", source)
+        self.assertEqual(history.returncode, 0, history.stderr)
+        self.assertIn("LATEST_MARKER_998", history.stdout)
+        self.assertIn("Smoke reply.", history.stdout)
+        cursor = json.loads(history.stdout)["nextCursor"]
+        self.assertTrue(cursor)
+        older = run("--inherit-history", source, "--cursor", cursor)
+        self.assertEqual(older.returncode, 0, older.stderr)
+        self.assertIn("SOURCE_MARKER_997", older.stdout)
+        other = self.home / "other-project"
+        other.mkdir()
+        outside = run("--inherit-history", source, cwd=other)
+        self.assertNotEqual(outside.returncode, 0)
+        self.assertNotIn("SOURCE_MARKER_997", outside.stdout + outside.stderr)
+        self.assertEqual(self.server.requests, [], "History operations contacted the upstream")
+        self.server.call_inherit_tool = True
+
+        master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 160, 0, 0))
+        try:
+            process = subprocess.Popen([*launcher, "/inherit", "@" + source], cwd=self.home,
+                                       env={**self.env, "TERM": "xterm-256color"},
+                                       stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+        finally:
+            os.close(slave)
+        self.addCleanup(_stop_tui, process, master)
+        output = bytearray()
+        deadline = time.monotonic() + 20
+        posts = []
+        while time.monotonic() < deadline:
+            ready, _, _ = select.select([master], [], [], 0.05)
+            if ready:
+                try:
+                    chunk = os.read(master, 65536)
+                except OSError:
+                    break
+                output.extend(chunk)
+                if b"\x1b[6n" in chunk:
+                    os.write(master, b"\x1b[1;1R")
+                if b"\x1b[c" in chunk:
+                    os.write(master, b"\x1b[?1;2c")
+            posts = [r for r in self.server.requests if r["method"] == "POST"]
+            if len(posts) >= 2:
+                break
+        self.assertTrue(posts, output.decode("utf-8", errors="replace")[-4000:])
+        tools = json.loads(posts[0]["body"]).get("tools", [])
+        self.assertGreaterEqual(len(posts), 2, [tool.get("name", tool.get("type")) for tool in tools])
+        self.assertNotEqual(posts[0]["headers"]["session-id"], source_session)
+        initial_input = json.dumps(json.loads(posts[0]["body"])["input"])
+        self.assertIn(f"--inherit-history {source}", initial_input)
+        self.assertNotIn("SOURCE_MARKER_997", initial_input)
+        self.assertNotIn("Smoke reply.", initial_input)
+        self.assertIn("LATEST_MARKER_998", posts[1]["body"].decode())
+
+    def test_in_chat_inherit_opens_a_cancellable_session_picker_before_any_request(self):
+        import fcntl
+        import pty
+        import termios
+
+        self.configure()
+        self.server.complete_responses = True
+        installed = subprocess.run(
+            ["sh", str(ROOT / "install.sh"), "--yes"],
+            env={**self.env, "XINGCHI_SKIP_INTEGRATIONS": "1"},
+            capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(installed.returncode, 0, installed.stderr + installed.stdout)
+        launcher = [str(self.home / ".local/bin/xingchi-codex")]
+        sys.path.insert(0, str(ROOT / "bin"))
+        from xingchi_tui import TerminalScreen
+
+        class ObservedScreen(TerminalScreen):
+            watching = False
+
+            def control(self, params, final):
+                super().control(params, final)
+                if self.watching and params == "?2026" and final == "l":
+                    self.commits.append([self.line(row) for row in range(self.rows)
+                                         if self.line(row).startswith("› /inherit ")])
+
+        with (self.home / ".codex/config.toml").open("a", encoding="utf-8") as config:
+            config.write('\n[projects.' + json.dumps(str(self.home)) + ']\ntrust_level = "trusted"\n')
+        first = subprocess.run([*launcher, "exec", "--skip-git-repo-check", "--json",
+                                "Remember IN_CHAT_HISTORY_MARKER."], env=self.env, cwd=self.home,
+                               capture_output=True, text=True, timeout=30)
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        source = next(json.loads(line)["thread_id"] for line in first.stdout.splitlines()
+                      if line.startswith("{") and json.loads(line).get("type") == "thread.started")
+        source_session = next(r["headers"]["session-id"] for r in self.server.requests if r["method"] == "POST")
+        self.server.limited_session = source_session
+        self.server.requests.clear()
+        master, slave = pty.openpty()
+        fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 50, 160, 0, 0))
+        try:
+            process = subprocess.Popen([*launcher, "--no-alt-screen", "-C", self.home.name,
+                                        "-c", "model_reasoning_effort=high", "resume", source], cwd=self.home.parent,
+                                       env={**self.env, "TERM": "xterm-256color"},
+                                       stdin=slave, stdout=slave, stderr=slave, start_new_session=True)
+        finally:
+            os.close(slave)
+        self.addCleanup(_stop_tui, process, master)
+        output = bytearray()
+        screen = ObservedScreen(os.terminal_size((160, 50)))
+        screen.commits = []
+
+        def pump(condition, seconds=12):
+            deadline = time.monotonic() + seconds
+            while time.monotonic() < deadline:
+                ready, _, _ = select.select([master], [], [], 0.05)
+                if ready:
+                    try:
+                        chunk = os.read(master, 65536)
+                    except OSError:
+                        break
+                    output.extend(chunk)
+                    screen.feed(chunk)
+                    if b"\x1b[?u" in chunk:
+                        os.write(master, b"\x1b[?0u")
+                    if b"\x1b[?1007$p" in chunk:
+                        os.write(master, b"\x1b[?1007;2$y")
+                    if b"\x1b[6n" in chunk:
+                        os.write(master, b"\x1b[1;1R")
+                    if b"\x1b[c" in chunk:
+                        os.write(master, b"\x1b[?1;2c")
+                if condition():
+                    return
+            self.fail(output.decode("utf-8", errors="replace")[-5000:])
+
+        pump(lambda: b"Ask Codex" in output)
+        output.clear()
+        os.write(master, b"/")
+        def inherit_is_selected():
+            return screen.ready and any(
+                screen.line(row).startswith("› /inherit ")
+                and screen.line(row + 1).startswith("  /model ")
+                for row in range(screen.rows - 1))
+
+        pump(inherit_is_selected)
+        self.assertNotIn("/inherit", screen.line(screen.rows - 1), "A footer hint is not a menu entry")
+        os.write(master, b"\x1b[13u")
+        pump(lambda: screen.ready and "Inherit a saved session" in screen.line(0)
+             and any("1/1 sessions" in screen.line(row) for row in range(screen.rows)))
+        self.assertFalse(self.server.requests, "Opening the list must not contact a capped model")
+
+        os.write(master, b"\x1b")
+        output.clear()
+        pump(lambda: b"Ask Codex" in output)
+        self.assertIsNone(process.poll(), "Cancelling inheritance closed the original chat")
+        self.assertFalse(self.server.requests)
+        os.write(master, b"/")
+        pump(inherit_is_selected)
+        os.write(master, b"\x1b[B")
+        pump(lambda: screen.ready and any(screen.line(row).startswith("› /model ")
+                                          for row in range(screen.rows)))
+        output.clear()
+        os.write(master, b"\r")
+        pump(lambda: b"GPT-6.1 Sol on Xingchi" in output)
+        self.assertFalse(self.server.requests, "Selecting a native menu entry contacted the model")
+        os.write(master, b"\x1b[B")
+        os.write(master, b"\x1b")
+        output.clear()
+        pump(lambda: b"Ask Codex" in output)
+        output.clear()
+        os.write(master, b"/")
+        pump(inherit_is_selected)
+        screen.watching = True
+        prefix = "/"
+        for char in "inherit":
+            prefix += char
+            os.write(master, char.encode())
+            pump(lambda: screen.ready and any(screen.line(row) == "› " + prefix for row in range(screen.rows)))
+        for _ in range(4):
+            prefix = prefix[:-1]
+            os.write(master, b"\x7f")
+            pump(lambda: screen.ready and any(screen.line(row) == "› " + prefix for row in range(screen.rows)))
+        screen.watching = False
+        self.assertGreaterEqual(len(screen.commits), 11)
+        self.assertTrue(all(len(entries) == 1 for entries in screen.commits),
+                        "Typing/backspacing committed a missing or duplicate /inherit entry: "
+                        + repr(screen.commits))
+        os.write(master, b"\r")
+        pump(lambda: b"1/1 sessions" in output)
+        self.server.call_inherit_tool = True
+        os.write(master, b"\r")
+        pump(lambda: len([r for r in self.server.requests if r["method"] == "POST"]) >= 2, 20)
+        posts = [r for r in self.server.requests if r["method"] == "POST"]
+        self.assertNotEqual(posts[0]["headers"]["session-id"], source_session)
+        self.assertEqual(posts[0]["headers"]["authorization"], f"Bearer {KEY}")
+        self.assertEqual(json.loads(posts[0]["body"])["reasoning"]["effort"], "high")
+        self.assertNotIn("IN_CHAT_HISTORY_MARKER", json.dumps(json.loads(posts[0]["body"])["input"]))
+        self.assertIn("IN_CHAT_HISTORY_MARKER", posts[1]["body"].decode())
+
     def test_codex_sends_selected_model_and_reasoning_effort(self):
         self.configure()
         catalogs = [
@@ -509,7 +751,9 @@ class SmokeTests(unittest.TestCase):
                 os.write(master, b"\x1b[B")
                 pump(0.1)
 
-        pump(15, until="GPT-6.1 Sol")
+        # The catalog/model label is visible before Codex finishes startup;
+        # its idle notification marks when native commands can be opened.
+        pump(15, condition=lambda: b"state=idle:app=codex" in output)
         os.write(master, b"/model")
         pump(0.2)
         os.write(master, b"\r")

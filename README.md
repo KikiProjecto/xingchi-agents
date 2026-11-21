@@ -355,6 +355,43 @@ command-line `-c` override applies to that invocation.
 
 ## Troubleshooting
 
+### Start a fresh chat with saved context (`/inherit`)
+
+Inside `xingchi-codex`, type `/inherit` and press Enter. A session picker
+opens immediately, including when the current chat has hit a provider limit.
+Use ↑/↓ or Page Up/Down, type a title or ID to filter, then press Enter to
+inherit the selected session. Esc returns to the current chat. The list is
+restricted to saved sessions in the launch directory and includes archived
+sessions. `/inherit <ID or title>` opens the same picker with a filter.
+
+Typing `/` displays `/inherit` as the selected first row of the command popup.
+Press Enter to open the session list, or ↓ to select Codex's normal commands.
+After updating an already-running launcher, exit it and start `xingchi-codex`
+once to load the terminal command extension.
+
+The same picker and selectors are available from the shell:
+
+```sh
+xingchi-codex /inherit                    # choose from same-directory sessions
+xingchi-codex /inherit --list             # show names and IDs without starting a chat
+xingchi-codex /inherit '<SESSION_ID>'     # full ID, unique prefix, or title
+xingchi-codex /inherit 'Verify Codex model configuration'
+```
+
+`--inherit` is an alias for the shell command; put `--astra` before either
+form to use the dedicated key for the new chat. In-chat inheritance keeps the
+key group and command-line settings of the running launcher.
+
+The launcher starts a fresh chat, not a resume or a fork. Its first prompt
+contains the selected session ID, not its old turns. The new chat can read the
+source's saved turns and tool results on demand through a read-only tool scoped
+to the selected session. For manual use,
+`xingchi-codex --inherit-history <SESSION_ID>` prints the latest saved turn as
+JSON; pass its `nextCursor` to `--cursor` to keep reading.
+Listings and manual reads do not send a model request. History the new chat
+reads as tool output can be sent to the model. Only persisted history that
+Codex still exposes can be recovered; unsaved or deleted turns cannot.
+
 ### Continue after the 100-request session limit
 
 If Xingchi returns `session_request_limit_exceeded`, exit the capped session
@@ -375,6 +412,8 @@ has saved, including its existing summaries; it does not undo earlier
 compaction or guarantee that an unlimited history fits in the active context.
 The shortcut requires exiting and relaunching; it does not automatically
 restart a running TUI when the error appears.
+If the fork immediately hits `session_turn_limit_exceeded`, use `/inherit`
+instead of forking again.
 
 | Symptom | Cause / fix |
 | --- | --- |

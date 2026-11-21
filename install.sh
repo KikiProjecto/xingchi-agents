@@ -41,8 +41,12 @@ After installation:
   xingchi-codex --astra         Astra-专属余额
   xingchi-codex -m gpt-6.1-sol  choose a specific model
   xingchi-codex --astra -m gpt-6-astra
+  xingchi-codex /inherit     choose saved history and continue in a fresh chat
   xingchi-codex --continue     fork saved history after a session request limit
   /model                       choose model and reasoning effort in Codex
+  /inherit                     open the saved-session picker inside the chat
+Type / to select /inherit from the command list.
+After updating, exit any running Codex and relaunch xingchi-codex to load the update.
 At the optional Astra prompt, press Enter to configure GPT公益/Sol only.
 An existing $XDIR/astra.key is reused; remove that file to stop storing the Astra key.
 EOF
@@ -199,6 +203,9 @@ XINGCHI_API_KEY=$upstream XINGCHI_ASTRA_API_KEY=$astra XINGCHI_UPSTREAM=$UPSTREA
 cp "$SRC/bin/xingchi-codex" "$BIN/xingchi-codex"
 cp "$SRC/bin/xingchi" "$BIN/xingchi"
 cp "$SRC/bin/xingchi-codex-runner.py" "$BIN/xingchi-codex-runner.py"
+cp "$SRC/bin/xingchi_history.py" "$BIN/xingchi_history.py"
+cp "$SRC/bin/xingchi_tui.py" "$BIN/xingchi_tui.py"
+cp "$SRC/bin/xingchi_conpty.py" "$BIN/xingchi_conpty.py"
 chmod 755 "$BIN/xingchi-codex" "$BIN/xingchi" "$BIN/xingchi-codex-runner.py"
 echo "  installed $BIN/xingchi-codex"
 
@@ -267,6 +274,8 @@ echo "  xingchi-codex --astra      (Astra-专属余额, if astra.key is configur
 echo "  xingchi-codex -m gpt-6.1-sol"
 echo "  xingchi-codex --astra -m gpt-6-astra"
 echo 'Choose your model and reasoning level with /model in Codex.'
+echo 'Type / to select /inherit, then Enter to choose a saved session and continue in a fresh chat.'
+echo 'After updating, exit any running Codex and relaunch xingchi-codex to load the update.'
 echo 'The key group is selected at launch; /model never switches API keys.'
 echo 'After a session request limit: exit, then xingchi-codex --continue (or --astra --continue).'
 echo "Check the setup with:"
