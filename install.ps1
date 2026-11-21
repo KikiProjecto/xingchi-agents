@@ -1,4 +1,4 @@
-# xingchi-codex installer for Windows.
+﻿# xingchi-codex installer for Windows.
 # Points the Codex CLI at the Xingchi upstream (OpenAI Responses API).
 # Sol is required; Astra is optional and selected explicitly with --astra.
 #

@@ -94,7 +94,9 @@ def plan_skills(home, codex_home, rules):
     for i, root in enumerate(roots):
         resolved = root.resolve()
         if resolved not in inventories:
-            inventories[resolved] = list(scan_skills(resolved))
+            # Keep paths in the spelling supplied by the user for config
+            # output; `resolved` is only the inventory cache/dedup key.
+            inventories[resolved] = list(scan_skills(root))
         paths = inventories[resolved]
         if root == shared:
             shared_files.update(path.resolve() for path in paths)

@@ -55,7 +55,7 @@ def _installer_code():
     """
     kept = [
         line
-        for line in (ROOT / "install.ps1").read_text(encoding="utf-8").splitlines()
+        for line in (ROOT / "install.ps1").read_text(encoding="utf-8-sig").splitlines()
         if not line.lstrip().startswith("#")
     ]
     return os.linesep.join(kept)
@@ -98,6 +98,9 @@ class _ModelsHandler(BaseHTTPRequestHandler):
 
 class InstallerSourceTests(unittest.TestCase):
     """Static guards: these run on every platform, no PowerShell needed."""
+
+    def test_powershell_installer_has_utf8_bom_for_windows_powershell_51(self):
+        self.assertTrue((ROOT / "install.ps1").read_bytes().startswith(b"\xef\xbb\xbf"))
 
     def test_no_case_colliding_url_and_key_variables(self):
         # To PowerShell, $Upstream and $upstream are one variable. Any spelling
