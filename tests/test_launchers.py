@@ -12,6 +12,34 @@ ROOT = Path(__file__).resolve().parents[1]
 
 @unittest.skipIf(os.name == "nt", "POSIX launchers are tested on macOS/Linux")
 class LauncherTests(unittest.TestCase):
+    def test_continue_forks_history_without_switching_the_selected_key(self):
+        with tempfile.TemporaryDirectory() as directory:
+            home = Path(directory)
+            xdir = home / ".xingchi"
+            xdir.mkdir()
+            (xdir / "upstream.key").write_text("public-test-key\n")
+            (xdir / "astra.key").write_text("dedicated-test-key\n")
+            fake = home / "codex"
+            fake.write_text(
+                "#!/usr/bin/env python3\nimport json, os, sys\n"
+                "print(json.dumps({'args': sys.argv[1:], "
+                "'key': os.getenv('XINGCHI_API_KEY')}))\n"
+            )
+            fake.chmod(0o755)
+            for flags, key in (([], "public-test-key"), (["--astra"], "dedicated-test-key")):
+                with self.subTest(flags=flags):
+                    result = subprocess.run(
+                        ["sh", str(ROOT / "bin/xingchi-codex"), *flags,
+                         "--continue", "-c", "model_reasoning_effort=high", "--search"],
+                        env={"HOME": str(home), "CODEX_HOME": str(home / ".codex"),
+                             "PATH": str(home) + os.pathsep + os.environ["PATH"]},
+                        capture_output=True, text=True, check=True,
+                    )
+                    output = json.loads(result.stdout)
+                    self.assertEqual(output["args"], ["--no-daemon", "fork", "--last",
+                                                     "-c", "model_reasoning_effort=high", "--search"])
+                    self.assertEqual(output["key"], key)
+
     def test_codex_launcher_forwards_args_and_reads_key(self):
         with tempfile.TemporaryDirectory() as directory:
             home = Path(directory)
@@ -265,6 +293,7 @@ class LauncherTests(unittest.TestCase):
             for required in (
                 "upstream.key", "astra.key", "XINGCHI_API_KEY",
                 "XINGCHI_ASTRA_API_KEY", "xingchi-codex --astra",
+                "xingchi-codex --continue",
                 "gpt-6-astra", "xingchi-models.json",
                 "xingchi-models-astra.json", "XINGCHI_SKIP_INTEGRATIONS",
                 skill_path,
@@ -276,6 +305,7 @@ class LauncherTests(unittest.TestCase):
 
         for required in (
             "GPT公益/Sol", "Astra-专属余额", "xingchi-codex --astra",
+            "xingchi-codex --continue",
             "xingchi-codex -m gpt-6.1-sol", "xingchi-codex --astra -m gpt-6-astra",
             "xingchi-models-astra.json",
         ):

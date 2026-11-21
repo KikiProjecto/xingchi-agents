@@ -358,6 +358,22 @@ class WindowsInstallTests(unittest.TestCase):
         self.assertIn("--search", forwarded)
         self.assertEqual((self.home / "selected-key.txt").read_text().strip(), ASTRA_KEY)
 
+    def test_continue_forks_with_the_selected_key(self):
+        self.install()
+        launcher = self.home / "bin" / "xingchi-codex.cmd"
+        for flags, key in (([], KEY), (["--astra"], ASTRA_KEY)):
+            with self.subTest(flags=flags):
+                result = subprocess.run(
+                    ["cmd.exe", "/d", "/c", str(launcher), *flags, "--continue", "--search"],
+                    env=self.env, capture_output=True, text=True, timeout=30,
+                )
+                self.assertEqual(result.returncode, 3, result.stderr)
+                forwarded = (self.home / "args.txt").read_text().strip()
+                self.assertIn("fork --last --search", forwarded)
+                self.assertNotIn("--continue", forwarded)
+                self.assertNotIn("-m ", forwarded, "Fork must preserve the previous model")
+                self.assertEqual((self.home / "selected-key.txt").read_text().strip(), key)
+
     def test_reinstall_preserves_model_and_effort(self):
         self.install()
         path = self.home / ".codex/config.toml"

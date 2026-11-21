@@ -75,6 +75,11 @@ The launcher chooses the key group for the whole session; it never silently
 routes individual models across keys. Use a model listed for the selected
 group.
 
+The `gpt-6-astra` model is available only in the Astra-专属余额 catalog.
+Start with `xingchi-codex --astra`, then select it in `/model` or pass
+`-m gpt-6-astra`. The `--astra` flag selects the separate Astra key for the
+whole session.
+
 The menu and its reasoning choices are local configuration. **They do not
 grant account access.** If Xingchi returns `model_not_found` for Astra, Luna,
 or Terra, that exact model must be enabled for your key's account group.
@@ -349,6 +354,27 @@ Changing the reasoning level in `/model` saves it for the next launch. A
 command-line `-c` override applies to that invocation.
 
 ## Troubleshooting
+
+### Continue after the 100-request session limit
+
+If Xingchi returns `session_request_limit_exceeded`, exit the capped session
+and run this from the same project directory:
+
+```sh
+xingchi-codex --continue
+```
+
+For the dedicated Astra key, use `xingchi-codex --astra --continue`.
+This shortcut runs Codex's native `fork --last`: it creates a new session ID
+from the latest session's saved conversation, rather than resuming the capped
+ID or opening an empty conversation. To choose the source explicitly, run
+`xingchi-codex fork <SESSION_ID>` (add `--astra` before `fork` for that key).
+
+The source session stays on disk. Forking preserves the conversation Codex
+has saved, including its existing summaries; it does not undo earlier
+compaction or guarantee that an unlimited history fits in the active context.
+The shortcut requires exiting and relaunching; it does not automatically
+restart a running TUI when the error appears.
 
 | Symptom | Cause / fix |
 | --- | --- |

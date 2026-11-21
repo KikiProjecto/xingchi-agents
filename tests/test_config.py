@@ -91,11 +91,16 @@ class ConfigTests(unittest.TestCase):
                  "gpt-image-2.5-flare", "text-embedding-3-large"]
         path = Path(config.configure_codex(sol, astra))
         catalog = json.loads(Path(tomllib.loads(path.read_text())["model_catalog_json"]).read_text())
-        self.assertEqual([entry["slug"] for entry in catalog["models"]], sol)
+        self.assertEqual([entry["slug"] for entry in catalog["models"]],
+                         list(dict.fromkeys((*config.group_model_ids("sol"), *sol))))
         astra_catalog = json.loads((Path(path).parent / "xingchi-models-astra.json").read_text())
         self.assertEqual([entry["slug"] for entry in astra_catalog["models"]],
                          list(dict.fromkeys((*config.group_model_ids("astra"), *astra))))
         self.assertFalse((self.home / ".xingchi/model-routes.json").exists())
+
+    def test_public_group_does_not_include_astra_when_discovery_lists_only_sol(self):
+        catalog = config.build_group_catalog("sol", ["gpt-6.1-sol"])["models"]
+        self.assertEqual([entry["slug"] for entry in catalog], ["gpt-6.1-sol"])
 
     def test_reinstall_removes_legacy_astra_provider(self):
         self.put(

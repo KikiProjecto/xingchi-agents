@@ -61,6 +61,7 @@ if ($Help) {
     Write-Host "Unified skills root: $SharedSkills (shared with local Codex/Claude skills)."
     Write-Host "Commands: xingchi-codex | xingchi-codex --astra | xingchi-codex -m gpt-6.1-sol | xingchi-codex --astra -m gpt-6-astra"
     Write-Host 'Inside Codex, use /model to select a model and its available reasoning effort.'
+    Write-Host 'After a session request limit, exit and run xingchi-codex --continue to fork saved history.'
     return
 }
 
@@ -312,4 +313,5 @@ Write-Host '  xingchi-codex -m gpt-6.1-sol'
 Write-Host '  xingchi-codex --astra -m gpt-6-astra'
 Write-Host 'Choose your model and reasoning level with /model in Codex.'
 Write-Host 'The key group is selected at launch; /model never switches API keys.'
+Write-Host 'After a session request limit: exit, then xingchi-codex --continue (or --astra --continue).'
 Write-Host 'Check the setup with: xingchi'

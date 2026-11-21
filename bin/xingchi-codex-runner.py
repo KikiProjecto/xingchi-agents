@@ -99,6 +99,10 @@ def run_codex(args: list[str]) -> int:
     use_astra = bool(args and args[0] == "--astra")
     if use_astra:
         args = args[1:]
+    if args and args[0] == "--continue":
+        # Fork through Codex itself: it copies saved conversation history and
+        # allocates a new thread/session ID rather than resuming the capped ID.
+        args = ["fork", "--last", *args[1:]]
     key_file = "astra.key" if use_astra else "upstream.key"
     api_key = read_key(key_file)
     if not api_key:

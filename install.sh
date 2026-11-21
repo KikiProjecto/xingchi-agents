@@ -41,6 +41,7 @@ After installation:
   xingchi-codex --astra         Astra-专属余额
   xingchi-codex -m gpt-6.1-sol  choose a specific model
   xingchi-codex --astra -m gpt-6-astra
+  xingchi-codex --continue     fork saved history after a session request limit
   /model                       choose model and reasoning effort in Codex
 At the optional Astra prompt, press Enter to configure GPT公益/Sol only.
 An existing $XDIR/astra.key is reused; remove that file to stop storing the Astra key.
@@ -267,6 +268,7 @@ echo "  xingchi-codex -m gpt-6.1-sol"
 echo "  xingchi-codex --astra -m gpt-6-astra"
 echo 'Choose your model and reasoning level with /model in Codex.'
 echo 'The key group is selected at launch; /model never switches API keys.'
+echo 'After a session request limit: exit, then xingchi-codex --continue (or --astra --continue).'
 echo "Check the setup with:"
 if command -v xingchi >/dev/null 2>&1; then
   echo "  xingchi"

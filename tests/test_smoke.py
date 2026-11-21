@@ -141,6 +141,14 @@ class _Handler(BaseHTTPRequestHandler):
             payload = json.dumps({"data": [{"id": model} for model in models]}).encode()
             self.send_response(200)
         elif (self.command == "POST" and self.path == "/v1/responses"
+              and self.headers.get("session-id") == getattr(self.server, "limited_session", "")):
+            payload = json.dumps({"error": {
+                "code": "session_request_limit_exceeded",
+                "message": "This session has reached the limit of 100 requests. Please start a new session.",
+                "type": "invalid_request_error",
+            }}).encode()
+            self.send_response(400)
+        elif (self.command == "POST" and self.path == "/v1/responses"
               and getattr(self.server, "complete_responses", False)
               and not any(item.get("type") == "compaction_trigger"
                           for item in json.loads(self.server.requests[-1]["body"])["input"])):
@@ -241,7 +249,7 @@ class SmokeTests(unittest.TestCase):
         )
         self.assertEqual(sol_result.returncode, 0, sol_result.stderr)
         sol_models = json.loads(sol_result.stdout)["models"]
-        self.assertEqual({model["slug"] for model in sol_models}, set(UPSTREAM_MODELS))
+        self.assertEqual({model["slug"] for model in sol_models}, {"gpt-6.1-sol"})
 
         astra_result = subprocess.run(
             ["sh", str(ROOT / "bin/xingchi-codex"), "--astra", "debug", "models"],
@@ -366,6 +374,44 @@ class SmokeTests(unittest.TestCase):
         self.assertTrue(bodies[-1].get("tools"), "The resumed conversation should continue after compaction")
         self.assertFalse(any(item.get("type") == "compaction_trigger" for body in bodies for item in body["input"]))
         self.assertTrue(any("Smoke summary." in json.dumps(item) for item in bodies[-1]["input"]))
+
+    def test_fork_after_session_limit_keeps_history_and_changes_session_id(self):
+        self.configure()
+        self.server.complete_responses = True
+        launcher = ["sh", str(ROOT / "bin/xingchi-codex"), "exec"]
+        first = subprocess.run(
+            [*launcher, "--skip-git-repo-check", "--json", "Remember HISTORY_MARKER_47."],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(first.returncode, 0, first.stderr + first.stdout)
+        events = [json.loads(line) for line in first.stdout.splitlines() if line.startswith("{")]
+        thread_id = next(e["thread_id"] for e in events if e.get("type") == "thread.started")
+        first_post = next(r for r in self.server.requests if r["method"] == "POST")
+        self.server.limited_session = first_post["headers"]["session-id"]
+        capped = subprocess.run(
+            [*launcher, "resume", "--skip-git-repo-check", "--json", thread_id, "Continue."],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=30,
+        )
+        self.assertNotEqual(capped.returncode, 0)
+        self.assertIn("session_request_limit_exceeded", capped.stdout + capped.stderr)
+        originals = {p: p.read_bytes() for p in (self.home / ".codex/sessions").rglob("*.jsonl")}
+        self.assertTrue(originals)
+        self.server.requests.clear()
+        forked = subprocess.run(
+            [*launcher, "fork", "--skip-git-repo-check", "--json", thread_id, "Continue after the limit."],
+            env=self.env, cwd=self.home, capture_output=True, text=True, timeout=30,
+        )
+        self.assertEqual(forked.returncode, 0, forked.stderr + forked.stdout)
+        posts = [r for r in self.server.requests if r["method"] == "POST"]
+        self.assertTrue(posts)
+        for request in posts:
+            self.assertNotEqual(request["headers"]["session-id"], self.server.limited_session)
+            self.assertEqual(request["headers"]["authorization"], f"Bearer {KEY}")
+        body = json.loads(posts[-1]["body"])
+        self.assertIn("HISTORY_MARKER_47", json.dumps(body["input"]))
+        self.assertIn("Smoke reply.", json.dumps(body["input"]))
+        for path, content in originals.items():
+            self.assertEqual(path.read_bytes(), content, "Fork modified the source session")
 
     def test_codex_sends_selected_model_and_reasoning_effort(self):
         self.configure()
